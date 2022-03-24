@@ -1,5 +1,6 @@
 import enum
 import random
+import re
 from typing import Dict
 
 from jsonpickle import json
@@ -58,11 +59,17 @@ class StrongAgent(BW4TBrain):
             if member != agent_name and member not in self._teamMembers:
                 self._teamMembers.append(member)
                 # Process messages from team members
+        self.updateGoalBlocks(state)
         receivedMessages = self._processMessages(self._teamMembers)
         # Update trust beliefs for team members
+        self.update_info(receivedMessages)
+
         self._trustBlief(self._teamMembers, receivedMessages)
-        self.updateGoalBlocks(state)
+
         while True:
+            if self.checkCurrentBlockDrop(state):
+                self._phase = Phase.FOLLOW_PATH_TO_GOAL
+
             if Phase.PLAN_PATH_TO_CLOSED_DOOR == self._phase:
                 self._navigator.reset_full()
                 closedDoors = [door for door in state.values()
@@ -98,7 +105,6 @@ class StrongAgent(BW4TBrain):
                 self._navigator.reset_full()
                 contents = state.get_room_objects(self._door['room_name'])
                 waypoints = []
-
                 for c in contents:
                     if 'class_inheritance' in c and 'AreaTile' in c['class_inheritance']:
                         x, y = c["location"][0], c["location"][1]
@@ -139,10 +145,14 @@ class StrongAgent(BW4TBrain):
                 action = self._navigator.get_move_action(self._state_tracker)
                 if action is not None:
                     return action, {}
-                self._holdingBlocks.append(self._foundGoalBlocks[self._currentIndex])
-                self._phase = Phase.FOLLOW_PATH_TO_GOAL
-                self.pickingUpBlockMessage(self._foundGoalBlocks[self._currentIndex], agent_name)
-                return GrabObject.__name__, {'object_id': self._foundGoalBlocks[self._currentIndex]['obj_id']}
+                currentBlock = self.getGoalBlockName(state, self._foundGoalBlocks[self._currentIndex])
+                if currentBlock is not None:
+                    self._holdingBlocks.append(currentBlock)
+                    self._phase = Phase.FOLLOW_PATH_TO_GOAL
+                    self.pickingUpBlockMessage(currentBlock, agent_name)
+                    return GrabObject.__name__, {'object_id': currentBlock['obj_id']}
+                else:
+                    self._phase = Phase.PLAN_PATH_TO_CLOSED_DOOR
             if Phase.FOLLOW_PATH_TO_GOAL == self._phase:
                 self._navigator.reset_full()
                 self._navigator.add_waypoints([self._goalBlocks[self._currentIndex]['location']])
@@ -192,6 +202,33 @@ class StrongAgent(BW4TBrain):
     #####################
     # GOAL BLOCKS LOGIC #
     #####################
+    def checkCurrentBlockDrop(self, state):
+        holdingBlocks = state.get_self()['is_carrying']
+        if holdingBlocks is None or len(holdingBlocks) == 0:
+            return False
+        targetBlock = holdingBlocks[-1]
+        goalBlockIndex = self.getGoalBlockIndex(targetBlock)
+        if goalBlockIndex == self._currentIndex:
+            return True
+        return False
+    def getGoalBlockName(self, state, block):
+        if block is None:
+            return None
+        closeObjects = state.get_objects_in_area((block['location'][0] - 1, block['location'][1] - 1), bottom_right = (block['location'][0] + 1, block['location'][1] + 1))
+        #closeObjects = state.get_closest_objects()
+        closeBlocks = None
+        if closeObjects is not None:
+            closeBlocks = [obj for obj in closeObjects
+                           if 'CollectableBlock' in obj['class_inheritance']]
+        if closeObjects is None:
+            return None
+        for b in closeBlocks:
+            if b['visualization']['colour'] == block['visualization']['colour'] and \
+                                b['visualization']['shape'] == block['visualization']['shape'] and \
+                                b['visualization']['size'] == block['visualization']['size']:
+                return b
+        return None
+
     def updateGoalBlocks(self, state):
         if len(self._goalBlocks) == 0:
             self._goalBlocks = [goal for goal in state.values()
@@ -318,3 +355,76 @@ class StrongAgent(BW4TBrain):
             "Droppped goal block: " + json.dumps(item_info) +
             " at location (" + ', '.join([str(loc) for loc in location]) + ")", agent_name)
     #################################################################################################
+    def update_info(self, receivedMessages):
+        for member in self._teamMembers:
+            for msg in receivedMessages[member]:
+                print(msg)
+                # dummy block
+                block = {
+                    'is_drop_zone': False,
+                    'is_goal_block': False,
+                    'is_collectable': True,
+                    'name': 'some_block',
+                    'obj_id': 'some_block',
+                    'location': (0, 0),
+                    'is_movable': True,
+                    'carried_by': [],
+                    'is_traversable': True,
+                    'class_inheritance': ['CollectableBlock', 'EnvObject', 'object'],
+                    'visualization': {'size': -1, 'shape': -1, 'colour': '#00000', 'depth': 80, 'opacity': 1.0}}
+
+                if "Found goal block: " in msg:
+                    pattern = re.compile("{(.* ?)}")
+                    vis = re.search(pattern, msg).group(0)
+
+                    pattern2 = re.compile("\((.* ?)\)")
+                    loc = re.search(pattern2, msg).group(0)
+                    loc = loc.replace("(", "[")
+                    loc = loc.replace(")", "]")
+                    loc = json.loads(loc)
+                    vis = json.loads(vis)
+                    block['location'] = (loc[0], loc[1])
+                    block['visualization'] = vis
+
+                    goalBlockIndex = self.getGoalBlockIndex(block)
+                    self._foundGoalBlocks[goalBlockIndex] = block
+
+                elif "Picking up goal block: " in msg:
+
+                    pattern = re.compile("{(.* ?)}")
+                    vis = re.search(pattern, msg).group(0)
+
+                    pattern2 = re.compile("\((.* ?)\)")
+                    loc = re.search(pattern2, msg).group(0)
+                    loc = loc.replace("(", "[")
+                    loc = loc.replace(")", "]")
+                    loc = json.loads(loc)
+                    vis = json.loads(vis)
+
+                    block['location'] = (loc[0], loc[1])
+                    block['visualization'] = vis
+
+                    goalBlockIndex = self.getGoalBlockIndex(block)
+                    self._foundGoalBlocks[goalBlockIndex] = None
+
+
+                elif "Droppped goal block: " in msg:
+                    pattern = re.compile("{(.* ?)}")
+                    vis = re.search(pattern, msg).group(0)
+
+                    pattern2 = re.compile("\((.* ?)\)")
+                    loc = re.search(pattern2, msg).group(0)
+                    loc = loc.replace("(", "[")
+                    loc = loc.replace(")", "]")
+                    loc = json.loads(loc)
+                    vis = json.loads(vis)
+                    # do stuff
+                    block['visualization'] = vis
+                    block['location'] = loc
+
+                    goalBlockIndex = self.getGoalBlockIndex(block)
+                    if self._goalBlocks[goalBlockIndex]['location'] == (loc[0], loc[1]):
+                        if self._currentIndex == goalBlockIndex:
+                            self._currentIndex += 1
+                    else:
+                        self._foundGoalBlocks[goalBlockIndex] = block
