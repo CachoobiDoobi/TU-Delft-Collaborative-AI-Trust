@@ -514,7 +514,7 @@ class LazyAgent(BW4TBrain):
                         self._trust[member]['pick-up'] = max(self._trust[member]['pick-up'] - 0.1, 0)
                         self._trust[member]['verified'] += 1
                     # If last message is 'found' or 'drop-of' add to trust
-                    if messages[-1]['action'] == "found" or messages[-1]['action'] == "found":
+                    if messages[-1]['action'] == "found" or messages[-1]['action'] == "drop-off":
                         if o['visualization'] == messages[-1]['block']:
                             self._trust[member]['found'] = min(self._trust[member]['found'] + 0.1, 1)
                             self._trust[member]['verified'] += 1

@@ -1,5 +1,6 @@
 import json
 import re
+import random
 
 class Util():
 
@@ -60,6 +61,53 @@ class Util():
         for member in team_members:
             rep[member] = trust[member]['average']
         return "Reputation:" + json.dumps(rep)
+
+    @staticmethod
+    def openingDoorMessageLie(state, door):
+        door_names = [room['room_name'] for room in [door for door in state.values()
+                                                     if 'class_inheritance' in door and 'Door' in door[
+                                                         'class_inheritance']]]
+        door_names.remove(door)
+        return 'Opening door of ' + random.choice(door_names)
+
+    @staticmethod
+    def moveToMessageLie(door, doors):
+        room_names = [room['room_name'] for room in doors]
+        room_names.remove(door)
+        return 'Moving to ' + random.choice(room_names)
+
+    @staticmethod
+    def searchingThroughMessageLie(state, door):
+        rooms = [room for room in state.values()
+                 if 'class_inheritance' in room and 'Door' in room['class_inheritance']]
+        room_names = [room['room_name'] for room in rooms]
+        room_names.remove(door)
+        return 'Moving to ' + random.choice(room_names)
+
+    @staticmethod
+    def foundBlockMessageLie():
+        color = "%06x" % random.randint(0, 0xFFFFFF)
+        message = "Found block {\"size\": 0.5, \"shape\": " + \
+                  str(random.randint(0, 2)) + ", \"color\": \"#" + color + \
+                  "\"} at location (" + str(random.randint(0, 12)) + ", " + str(random.randint(0, 23)) + ")"
+        return message
+
+    @staticmethod
+    def pickingUpBlockMessageLie():
+        color = "%06x" % random.randint(0, 0xFFFFFF)
+        message = "Picking up goal block {\"size\": 0.5, \"shape\": " + \
+                  str(random.randint(0, 2)) + ", \"color\": \"#" + color + \
+                  "\"} at location (" + str(random.randint(0, 12)) + ", " + str(random.randint(0, 23)) + ")"
+        return message
+
+    @staticmethod
+    def droppingBlockMessageLie():
+        color = "%06x" % random.randint(0, 0xFFFFFF)
+        message = "Droppped goal block {\"size\": 0.5, \"shape\": " + \
+                  str(random.randint(0, 2)) + ", \"color\": \"#" + color + \
+                  "\"} at location (" + str(random.randint(0, 12)) + ", " + str(random.randint(0, 23)) + ")"
+        return message
+
 
     # TODO -  Implement methods: foundGoalBlockUpdate, foundBlockUpdate, pickUpBlockUpdate, dropBlockUpdate, dropGoalBlockUpdate
     # TODO -  In agent class; Each method takes block & member as arguments (use to update for each agent)
