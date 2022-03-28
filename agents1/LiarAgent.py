@@ -238,6 +238,7 @@ class LiarAgent(BW4TBrain):
             if Phase.MOVING_BLOCK == self._phase:
                 self._state_tracker.update(state)
                 action = self._navigator.get_move_action(self._state_tracker)
+                print("moving to block")
 
                 if action is not None:
                     return action, {}

@@ -59,7 +59,7 @@ class Util():
     def reputationMessage(trust, team_members):
         rep = {}
         for member in team_members:
-            rep[member] = trust[member]['rep']
+            rep[member] = trust[member]['average']
         return "Reputation:" + json.dumps(rep)
 
     @staticmethod
@@ -114,8 +114,10 @@ class Util():
 
     @staticmethod
     def update_info_general(arrayWorld, receivedMessages, teamMembers,
-                            foundGoalBlockUpdate, foundBlockUpdate, pickUpBlockUpdate, dropBlockUpdate, dropGoalBlockUpdate):
+                            foundGoalBlockUpdate, foundBlockUpdate, pickUpBlockUpdate, dropBlockUpdate, dropGoalBlockUpdate, updateRep):
+        avg_reps = {}
         for member in teamMembers:
+            avg_reps[member] = 0
             for msg in receivedMessages[member]:
                 block = {
                     'is_drop_zone': False,
@@ -245,3 +247,13 @@ class Util():
                         "block": block['visualization'],
                         "action": "found",
                     })
+                elif "Reputation: " in msg:
+                    pattern = re.compile("{(.* ?)}")
+                    rep = re.search(pattern, msg).group(0)
+                    rep = json.loads(rep)
+                    for name in rep.keys():
+                        avg_reps[name] += rep[name]
+        # ASSUMPTION --> every agent communicates rep every tturn for everyone
+        # for member in teamMembers:
+        #     self._trust[member]['rep'] = avg_reps[member] / len(self._teamMembers)
+        updateRep(avg_reps)
