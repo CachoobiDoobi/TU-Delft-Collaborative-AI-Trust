@@ -19,6 +19,7 @@ import numpy as np
 
 
 class Phase(enum.Enum):
+    SEARCH_RANDOM_ROOM = 13
     PLAN_PATH_TO_CLOSED_DOOR = 1,
     FOLLOW_PATH_TO_CLOSED_DOOR = 2,
     OPEN_DOOR = 3
@@ -30,7 +31,7 @@ class Phase(enum.Enum):
     DROP_BLOCK = 9
     PREPARE_ROOM = 10
     NEXT_DROP = 11
-    PICKUP_MORE =12
+    PICKUP_MORE = 12
 
 class StrongAgent(BW4TBrain):
 
@@ -59,9 +60,7 @@ class StrongAgent(BW4TBrain):
         return state
 
     def decide_on_bw4t_action(self, state: State):
-        self.write_beliefs()
-        if self._trust == {}:
-            self.initialize_trust()
+
         agent_name = state[self.agent_id]['obj_id']
         # Add team members
         for member in state['World']['team_members']:
@@ -70,17 +69,25 @@ class StrongAgent(BW4TBrain):
                 # Process messages from team members
         self.updateGoalBlocks(state)
         receivedMessages = self._processMessages(self._teamMembers)
+        # -----------------TRUST-----------------
+        if self._trust == {}:
+            self.initialize_trust()
+            self.read_trust()
+        self.write_beliefs()
+        self._sendMessage(Util.reputationMessage(self._trust,self._teamMembers), agent_name)
+        print(self._trust)
+        # ------------------------------------
         if self._arrayWorld is None:
             self._arrayWorld = np.empty(state['World']['grid_shape'], dtype=list)
         # Update trust beliefs for team members
         ##self.update_info(receivedMessages)
         Util.update_info_general(self._arrayWorld, receivedMessages, self._teamMembers,
                                  self.foundGoalBlockUpdate, self.foundBlockUpdate,
-                                 self.pickUpBlockUpdate, self.dropBlockUpdate, self.dropGoalBlockUpdate)
+                                 self.pickUpBlockUpdate, self.dropBlockUpdate, self.dropGoalBlockUpdate, self.updateRep)
         # Get agent location & close objects
         agentLocation = state[self.agent_id]['location']
-        closeObjects = state.get_objects_in_area((agentLocation[0] - 1, agentLocation[1] - 1),
-                                                 bottom_right=(agentLocation[0] + 1, agentLocation[1] + 1))
+        closeObjects = state.get_objects_in_area((agentLocation[0] - 2, agentLocation[1] - 2),
+                                                 bottom_right=(agentLocation[0] + 2, agentLocation[1] + 2))
         # Filter out only blocks
         closeBlocks = None
         if closeObjects is not None:
@@ -88,7 +95,7 @@ class StrongAgent(BW4TBrain):
                            if 'CollectableBlock' in obj['class_inheritance']]
 
         # Update trust beliefs for team members
-        self._trustBlief(self._teamMembers, receivedMessages, state, closeBlocks)
+        self._trustBlief(state, closeBlocks)
 
         # Update arrayWorld
         for obj in closeObjects:
@@ -104,6 +111,7 @@ class StrongAgent(BW4TBrain):
                                if 'class_inheritance' in door and 'Door' in door['class_inheritance'] and not door[
                         'is_open']]
                 if len(closedDoors) == 0:
+                    self._phase = Phase.SEARCH_RANDOM_ROOM
                     return None, {}
                 # Randomly pick a closed door
                 self._door = random.choice(closedDoors)
@@ -219,61 +227,92 @@ class StrongAgent(BW4TBrain):
                     self._phase = Phase.FOLLOW_PATH_TO_GOAL
                 else:
                     self.checkIfCurrentGoalBlock(agent_name, state)
-    def _trustBlief(self, member, received, state, close_objects):
+            if Phase.SEARCH_RANDOM_ROOM == self._phase:
+                doors = [door for door in state.values()
+                         if 'class_inheritance' in door and 'Door' in door['class_inheritance']]
+                self._door = random.choice(doors)
+                doorLoc = self._door['location']
+                # Location in front of door is south from door
+                doorLoc = doorLoc[0], doorLoc[1] + 1
+                # Send message of current action
+                # self._sendMessage('Moving to door of ' + self._door['room_name'], agent_name)
+                self._sendMessage(Util.moveToMessage(self._door['room_name']), agent_name)
+                self._navigator.add_waypoints([doorLoc])
+                self._phase = Phase.FOLLOW_PATH_TO_CLOSED_DOOR
+    def _trustBlief(self, state, close_objects):
         '''
         Baseline implementation of a trust belief. Creates a dictionary with trust belief scores for each team member, for example based on the received messages.
         '''
         # You can change the default value to your preference
 
         # Go throug the seen objects
-        #print(self._arrayWorld)
+        # print(self._arrayWorld)
+        # print("l: ", self._trust)
         if close_objects is not None:
             for o in close_objects:
                 loc = o['location']
                 messages = self._arrayWorld[loc[0], loc[1]]
                 # If we find messages for the location of the object
                 if messages is not None and len(messages) > 0:
+                    member = messages[-1]['memberName']
                     # If last message is 'pick-up' substract from trust
                     if messages[-1]['action'] == "pick-up":
-                        member = messages[-1]['memberName']
-                        self._trust[member]['pick-up'] = max(self._trust[member]['pick-up'] - 0.1, 0)
+                        self._trust[member]['pick-up'] = max(round(self._trust[member]['pick-up'] - 0.1, 3), 0)
                     # If last message is 'found' or 'drop-of' add to trust
-                    if messages[-1]['action'] == "found" or messages[-1]['drop-off'] == "found":
-                        if o['visualization'] == messages[-1]['block']:
-                            self._trust[member]['found'] = min(self._trust[member]['found'] + 0.1, 1)
+                    if messages[-1]['action'] == "found" or messages[-1]['action'] == "drop-off":
+                        val = self.check_same_visualizations(o['visualization'], messages[-1]['block'])
+                        self._trust[member]['found'] = min(round(self._trust[member]['found'] + val, 3), 1)
                     if len(messages) > 1:
                         i = len(messages) - 2
                         while i >= 0:
                             member = messages[i]['memberName']
                             if messages[-1]['action'] == "drop-off":
-                                self._trust[member]['drop-off'] = min(self._trust[member]['drop-off'] + 0.1, 1)
+                                self._trust[member]['drop-off'] = min(round(self._trust[member]['drop-off'] + 0.1, 3),1)
                                 break
                             if not messages[-1]['action'] == "found":
                                 break
-                            if o['visualization'] == messages[-1]['block']:
-                                self._trust[member]['found'] = min(self._trust[member]['found'] + 0.1, 1)
-                            else:
-                                self._trust[member]['found'] = max(self._trust[member]['found'] - 0.1, 0)
+
+                            val = self.check_same_visualizations(o['visualization'], messages[-1]['block'])
+                            self._trust[member]['found'] = min(round(self._trust[member]['found'] + val, 3), 1)
+
                             i -= 1
 
-
         agentLocation = state[self.agent_id]['location']
-        for x in range(agentLocation[0] - 1, agentLocation[0] + 2):
-            for y in range(agentLocation[1] - 1, agentLocation[1] + 2):
+        for x in range(agentLocation[0] - 2, agentLocation[0] + 2):
+            for y in range(agentLocation[1] - 2, agentLocation[1] + 2):
                 messages = self._arrayWorld[x][y]
                 if messages is not None and len(messages) > 0:
                     member = messages[-1]['memberName']
-                    if isinstance(messages, list) and messages[-1]['action'] == "found" or messages[-1]['action'] == "drop-off":
+                    if isinstance(messages, list) and messages[-1]['action'] == "found" or messages[-1][
+                        'action'] == "drop-off":
                         if close_objects is None:
-                            self._trust[member][messages[-1]['action']] = max(self._trust[member][messages[-1]['action']] - 0.1, 0)
+                            self._trust[member][messages[-1]['action']] = max(
+                                round(self._trust[member][messages[-1]['action']] - 0.1, 3), 0)
                         else:
                             found = False
                             for o in close_objects:
-                                if o['location'] == (x,y):
-                                    if o['visualization'] == messages[-1]['block']:
-                                        found = True
+                                if o['location'] == (x, y):
+                                    found = True
                             if found is False:
-                                self._trust[member][messages[-1]['action']] = max(self._trust[member][messages[-1]['action']] - 0.1, 0)
+                                self._trust[member][messages[-1]['action']] = max(
+                                    round(self._trust[member][messages[-1]['action']] - 0.1, 3), 0)
+
+    def check_same_visualizations(self, vis1, vis2):
+        size = 0
+        shape = 0
+        colour = 0
+
+        if "size" in vis1 and "size" in vis2:
+            size = 0.033 if vis1['size'] == vis2['size'] else -0.033
+
+        if "shape" in vis1 and "shape" in vis2:
+            shape = 0.033 if vis1['shape'] == vis2['shape'] else -0.033
+
+        if "colour" in vis1 and "colour" in vis2:
+            colour = 0.033 if vis1['colour'] == vis2['colour'] else -0.033
+
+        return size + shape + colour
+
     #####################
     # GOAL BLOCKS LOGIC #
     #####################
@@ -322,7 +361,10 @@ class StrongAgent(BW4TBrain):
         getBlockInfo = lambda x: dict(list(x['visualization'].items())[:3])
         blockInfo = getBlockInfo(block)
         reducedGoalBlocks = [getBlockInfo(x) for x in self._goalBlocks]
-        return reducedGoalBlocks.index(blockInfo)
+        try:
+            return reducedGoalBlocks.index(blockInfo)
+        except ValueError:
+            return None
 
     def manageBlock(self, block):
         goalBlockIndex = self.getGoalBlockIndex(block)
@@ -404,45 +446,67 @@ class StrongAgent(BW4TBrain):
     def read_trust(self):
         # agentname_trust.csv
         file_name = self.agent_id + '_trust.csv'
-        #fprint(file_name)
+        # fprint(file_name)
         if os.path.exists(file_name):
-            with open(file_name, newline='\n') as file:
+            with open(file_name, newline='') as file:
                 reader = csv.reader(file, delimiter=',')
                 for row in reader:
-                    self._trust[row[0]] = {"member": row[0], "pick-up": row[1], "drop-off": row[2], "found": row[3], "average": row[4],
-                                           "rep": row[5]}
+                    if row:
+                        self._trust[row[0]] = {"pick-up": float(row[1]), "drop-off": float(row[2]), "found": float(row[3]),
+                                               "average": float(row[4]),
+                                               "rep": float(row[5]), "verified": float(row[6])}
         else:
             f = open(file_name, 'x')
             f.close()
+
+        # print(self._trust)
+
     def initialize_trust(self):
         team = self._teamMembers
         for member in team:
-            self._trust[member] = {"member": member, "pick-up": 0.5, "drop-off": 0.5, "found": 0.5, "average": 0.5,
-                                   "rep": 0.5}
+            self._trust[member] = {"name": member, "pick-up": 0.5, "drop-off": 0.5, "found": 0.5, "average": 0.5,
+                                   "rep": 0.5, "verified": 0}
 
     def write_beliefs(self):
         file_name = self.agent_id + '_trust.csv'
         with open(file_name, 'w') as file:
-            # TODO add name to file
-            writer = csv.DictWriter(file, ["member", "pick-up", "drop-off", "found", "average", "rep"])
-            #writer.writeheader()
+            writer = csv.DictWriter(file, ["name", "pick-up", "drop-off", "found", "average", "rep", "verified"])
+            # writer.writeheader()
             names = self._trust.keys()
             for name in names:
-                writer.writerow(self._trust[name])
+                row = self._trust[name]
+                row['name'] = name
+                writer.writerow(row)
+
     def foundGoalBlockUpdate(self, block, member):
+        if self._trust[member]['found'] < 0.7:
+            return
         goalBlockIndex = self.getGoalBlockIndex(block)
+        if goalBlockIndex is None:
+            return
         self._foundGoalBlocks[goalBlockIndex] = block
     def foundBlockUpdate(self, block, member):
         return
     def pickUpBlockUpdate(self, block, member):
+        if (self._trust[member]['pick-up'] < 0.7 or self._trust[member]['verified'] < 3) and self._trust[member]['rep'] < 0.7:
+            return
         goalBlockIndex = self.getGoalBlockIndex(block)
+        if goalBlockIndex is None:
+            return
         self._foundGoalBlocks[goalBlockIndex] = None
     def dropBlockUpdate(self, block, member):
         return
     def dropGoalBlockUpdate(self, block, member):
+        if self._trust[member]['drop-off'] < 0.7:
+            return
         goalBlockIndex = self.getGoalBlockIndex(block)
+        if goalBlockIndex is None:
+            return
         if self._goalBlocks[goalBlockIndex]['location'] == block['location']:
             if self._currentIndex == goalBlockIndex:
                 self._currentIndex += 1
         else:
             self._foundGoalBlocks[goalBlockIndex] = block
+    def updateRep(self, avg_reps):
+        for member in self._teamMembers:
+            self._trust[member]['rep'] = avg_reps[member] / len(self._teamMembers)
