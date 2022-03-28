@@ -138,7 +138,6 @@ class LiarAgent(BW4TBrain):
                                 not c['is_goal_block'] and not c['is_drop_zone']:
                             if i == 0:
                                 goal = True
-                                print('found')
                                 # print(self._door['room_name'])
                                 # print(c)
                                 self._phase = Phase.MOVE_TO_OBJECT
@@ -167,7 +166,6 @@ class LiarAgent(BW4TBrain):
                 self._phase = Phase.PLAN_PATH_TO_UNSEARCHED_DOOR
 
             if Phase.MOVE_TO_OBJECT == self._phase:
-                print("moving to obj")
                 self._state_tracker.update(state)
                 action = self._navigator.get_move_action(self._state_tracker)
                 if action is not None:
@@ -186,7 +184,7 @@ class LiarAgent(BW4TBrain):
             if Phase.MOVING_BLOCK == self._phase:
                 self._state_tracker.update(state)
                 action = self._navigator.get_move_action(self._state_tracker)
-                print("moving to block")
+                #print("moving to block")
 
                 if action is not None:
                     return action, {}
