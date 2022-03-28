@@ -14,12 +14,12 @@ press the start button in god mode to start the session.
 
 if __name__ == "__main__":
     agents = [
-        {'name':'liar', 'botclass':LiarAgent, 'settings':{}},
-        #{'name':'blind', 'botclass':BlindAgent, 'settings':{}},
-        #{'name':'lazy3', 'botclass':LazyAgent, 'settings':{}},
-        #{'name': 'lazy1', 'botclass': LazyAgent, 'settings': {}},
+      #  {'name':'liar', 'botclass':LiarAgent, 'settings':{}},
+      #  {'name':'blind', 'botclass':BlindAgent, 'settings':{}},
+        {'name':'lazy3', 'botclass':LazyAgent, 'settings':{}},
+        {'name': 'lazy1', 'botclass': LazyAgent, 'settings': {}},
         {'name': 'lazy2', 'botclass': LazyAgent, 'settings': {}},
-        {'name': 'strong', 'botclass': StrongAgent, 'settings': {}},
+       {'name': 'strong', 'botclass': StrongAgent, 'settings': {}},
         ]
 
     print("Started world...")

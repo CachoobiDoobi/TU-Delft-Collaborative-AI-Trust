@@ -1,4 +1,6 @@
+import csv
 import enum
+import os
 import random
 import re
 from typing import Dict
@@ -11,7 +13,7 @@ from matrx.agents.agent_utils.navigator import Navigator
 from matrx.agents.agent_utils.state import State
 from matrx.agents.agent_utils.state_tracker import StateTracker
 from matrx.messages.message import Message
-
+from agents1.Util import Util
 from bw4t.BW4TBrain import BW4TBrain
 import numpy as np
 
@@ -42,17 +44,24 @@ class StrongAgent(BW4TBrain):
         self._currentIndex = 0
         self._foundGoalBlocks = None
         self._holdingBlocks = []
+
+        self._trust = {}
+        self._arrayWorld = None
+
     def initialize(self):
         super().initialize()
         self.DEFAULT_SETTINGS['max_objects'] = 2
         self._state_tracker = StateTracker(agent_id=self.agent_id)
         self._navigator = Navigator(agent_id=self.agent_id,
                                     action_set=self.action_set, algorithm=Navigator.A_STAR_ALGORITHM)
-
+        self.read_trust()
     def filter_bw4t_observations(self, state):
         return state
 
     def decide_on_bw4t_action(self, state: State):
+        self.write_beliefs()
+        if self._trust == {}:
+            self.initialize_trust()
         agent_name = state[self.agent_id]['obj_id']
         # Add team members
         for member in state['World']['team_members']:
@@ -61,11 +70,30 @@ class StrongAgent(BW4TBrain):
                 # Process messages from team members
         self.updateGoalBlocks(state)
         receivedMessages = self._processMessages(self._teamMembers)
+        if self._arrayWorld is None:
+            self._arrayWorld = np.empty(state['World']['grid_shape'], dtype=list)
         # Update trust beliefs for team members
-        self.update_info(receivedMessages)
+        ##self.update_info(receivedMessages)
+        Util.update_info_general(self._arrayWorld, receivedMessages, self._teamMembers,
+                                 self.foundGoalBlockUpdate, self.foundBlockUpdate,
+                                 self.pickUpBlockUpdate, self.dropBlockUpdate, self.dropGoalBlockUpdate)
+        # Get agent location & close objects
+        agentLocation = state[self.agent_id]['location']
+        closeObjects = state.get_objects_in_area((agentLocation[0] - 1, agentLocation[1] - 1),
+                                                 bottom_right=(agentLocation[0] + 1, agentLocation[1] + 1))
+        # Filter out only blocks
+        closeBlocks = None
+        if closeObjects is not None:
+            closeBlocks = [obj for obj in closeObjects
+                           if 'CollectableBlock' in obj['class_inheritance']]
 
-        self._trustBlief(self._teamMembers, receivedMessages)
+        # Update trust beliefs for team members
+        self._trustBlief(self._teamMembers, receivedMessages, state, closeBlocks)
 
+        # Update arrayWorld
+        for obj in closeObjects:
+            loc = obj['location']
+            self._arrayWorld[loc[0]][loc[1]] = []
         while True:
             if self.checkCurrentBlockDrop(state):
                 self._phase = Phase.FOLLOW_PATH_TO_GOAL
@@ -83,7 +111,8 @@ class StrongAgent(BW4TBrain):
                 # Location in front of door is south from door
                 doorLoc = doorLoc[0], doorLoc[1] + 1
                 # Send message of current action
-                self.moveToMessage(agent_name)
+                #self.moveToMessage(agent_name)
+                self._sendMessage(Util.moveToMessage(self._door['room_name']), agent_name)
                 self._navigator.add_waypoints([doorLoc])
                 self._phase = Phase.FOLLOW_PATH_TO_CLOSED_DOOR
 
@@ -99,7 +128,8 @@ class StrongAgent(BW4TBrain):
                 self._navigator.reset_full()
                 self._phase = Phase.PREPARE_ROOM
                 # Open door
-                self.openingDoorMessage(agent_name)
+                #self.openingDoorMessage(agent_name)
+                self._sendMessage(Util.openingDoorMessage(self._door['room_name']), agent_name)
                 return OpenDoorAction.__name__, {'object_id': self._door['obj_id']}
             if Phase.PREPARE_ROOM == self._phase:
                 self._navigator.reset_full()
@@ -113,7 +143,8 @@ class StrongAgent(BW4TBrain):
                 self._navigator.add_waypoints(waypoints)
                 self._currentRoomObjects = []
                 self._phase = Phase.SEARCH_BLOCK
-                self.searchingThroughMessage(agent_name)
+                #self.searchingThroughMessage(agent_name)
+                self._sendMessage(Util.searchingThroughMessage(self._door['room_name']), agent_name)
             if Phase.SEARCH_BLOCK == self._phase:
                 self._state_tracker.update(state)
                 contents = state.get_room_objects(self._door['room_name'])
@@ -128,9 +159,11 @@ class StrongAgent(BW4TBrain):
             if Phase.FOUND_BLOCK == self._phase:
                 for c in self._currentRoomObjects:
                     if not self.isGoalBlock(c):
-                        self.foundBlockMessage(c, agent_name)
+                        #self.foundBlockMessage(c, agent_name)
+                        self._sendMessage(Util.foundBlockMessage(c), agent_name)
                     if self.isGoalBlock(c):
-                        self.foundGoalBlockMessage(c, agent_name)
+                        #self.foundGoalBlockMessage(c, agent_name)
+                        self._sendMessage(Util.foundGoalBlockMessage(c), agent_name)
                         # most of the block picking logic
                         self.manageBlock2(c)
                 action = self._navigator.get_move_action(self._state_tracker)
@@ -149,7 +182,8 @@ class StrongAgent(BW4TBrain):
                 if currentBlock is not None:
                     self._holdingBlocks.append(currentBlock)
                     self._phase = Phase.FOLLOW_PATH_TO_GOAL
-                    self.pickingUpBlockMessage(currentBlock, agent_name)
+                    #self.pickingUpBlockMessage(currentBlock, agent_name)
+                    self._sendMessage(Util.pickingUpBlockMessage(currentBlock), agent_name)
                     return GrabObject.__name__, {'object_id': currentBlock['obj_id']}
                 else:
                     self._phase = Phase.PLAN_PATH_TO_CLOSED_DOOR
@@ -171,8 +205,10 @@ class StrongAgent(BW4TBrain):
                     else:
                         self._phase = Phase.PLAN_PATH_TO_CLOSED_DOOR
 
-                    self.droppingBlockMessage(block,
-                                              self._goalBlocks[self._currentIndex - 1]['location'], agent_name)
+                    #self.droppingBlockMessage(block,
+                    #                          self._goalBlocks[self._currentIndex - 1]['location'], agent_name)
+                    self._sendMessage(Util.droppingBlockMessage(
+                        block, self._goalBlocks[self._currentIndex - 1]['location']), agent_name)
                     return DropObject.__name__, {
                         'object_id': block['obj_id']}
                 else:
@@ -183,22 +219,61 @@ class StrongAgent(BW4TBrain):
                     self._phase = Phase.FOLLOW_PATH_TO_GOAL
                 else:
                     self.checkIfCurrentGoalBlock(agent_name, state)
-    def _trustBlief(self, member, received):
+    def _trustBlief(self, member, received, state, close_objects):
         '''
         Baseline implementation of a trust belief. Creates a dictionary with trust belief scores for each team member, for example based on the received messages.
         '''
         # You can change the default value to your preference
-        default = 0.5
-        trustBeliefs = {}
-        for member in received.keys():
-            trustBeliefs[member] = default
-        for member in received.keys():
-            for message in received[member]:
-                if 'Found' in message and 'colour' not in message:
-                    trustBeliefs[member] -= 0.1
-                    break
-        return trustBeliefs
 
+        # Go throug the seen objects
+        #print(self._arrayWorld)
+        if close_objects is not None:
+            for o in close_objects:
+                loc = o['location']
+                messages = self._arrayWorld[loc[0], loc[1]]
+                # If we find messages for the location of the object
+                if messages is not None and len(messages) > 0:
+                    # If last message is 'pick-up' substract from trust
+                    if messages[-1]['action'] == "pick-up":
+                        member = messages[-1]['memberName']
+                        self._trust[member]['pick-up'] = max(self._trust[member]['pick-up'] - 0.1, 0)
+                    # If last message is 'found' or 'drop-of' add to trust
+                    if messages[-1]['action'] == "found" or messages[-1]['drop-off'] == "found":
+                        if o['visualization'] == messages[-1]['block']:
+                            self._trust[member]['found'] = min(self._trust[member]['found'] + 0.1, 1)
+                    if len(messages) > 1:
+                        i = len(messages) - 2
+                        while i >= 0:
+                            member = messages[i]['memberName']
+                            if messages[-1]['action'] == "drop-off":
+                                self._trust[member]['drop-off'] = min(self._trust[member]['drop-off'] + 0.1, 1)
+                                break
+                            if not messages[-1]['action'] == "found":
+                                break
+                            if o['visualization'] == messages[-1]['block']:
+                                self._trust[member]['found'] = min(self._trust[member]['found'] + 0.1, 1)
+                            else:
+                                self._trust[member]['found'] = max(self._trust[member]['found'] - 0.1, 0)
+                            i -= 1
+
+
+        agentLocation = state[self.agent_id]['location']
+        for x in range(agentLocation[0] - 1, agentLocation[0] + 2):
+            for y in range(agentLocation[1] - 1, agentLocation[1] + 2):
+                messages = self._arrayWorld[x][y]
+                if messages is not None and len(messages) > 0:
+                    member = messages[-1]['memberName']
+                    if isinstance(messages, list) and messages[-1]['action'] == "found" or messages[-1]['action'] == "drop-off":
+                        if close_objects is None:
+                            self._trust[member][messages[-1]['action']] = max(self._trust[member][messages[-1]['action']] - 0.1, 0)
+                        else:
+                            found = False
+                            for o in close_objects:
+                                if o['location'] == (x,y):
+                                    if o['visualization'] == messages[-1]['block']:
+                                        found = True
+                            if found is False:
+                                self._trust[member][messages[-1]['action']] = max(self._trust[member][messages[-1]['action']] - 0.1, 0)
     #####################
     # GOAL BLOCKS LOGIC #
     #####################
@@ -286,12 +361,14 @@ class StrongAgent(BW4TBrain):
         goalBlockIndex = self.getGoalBlockIndex(currentBlock)
         if goalBlockIndex == self._currentIndex:
             self._phase = Phase.FOLLOW_PATH_TO_GOAL
-            self.pickingUpBlockMessage(currentBlock, agent_name)
+            ##self.pickingUpBlockMessage(currentBlock, agent_name)
+            self._sendMessage(Util.pickingUpBlockMessage(currentBlock), agent_name)
             return GrabObject.__name__, {'object_id': currentBlock['obj_id']}
         else:
             if len(self._holdingBlocks) == 1:
                 self.checkIfCurrentGoalBlock(agent_name, state)
-            self.pickingUpBlockMessage(currentBlock, agent_name)
+            ##self.pickingUpBlockMessage(currentBlock, agent_name)
+            self._sendMessage(Util.pickingUpBlockMessage(currentBlock), agent_name)
             return GrabObject.__name__, {'object_id': currentBlock['obj_id']}
     def checkIfCurrentGoalBlock(self, agent_name, state):
         if (len(self._goalBlocks) > self._currentIndex) and (self._foundGoalBlocks[self._currentIndex] is not None):
@@ -323,108 +400,49 @@ class StrongAgent(BW4TBrain):
                 if mssg.from_id == member:
                     receivedMessages[member].append(mssg.content)
         return receivedMessages
-
-    def moveToMessage(self, agent_name):
-        self._sendMessage('Moving to ' + self._door['room_name'], agent_name)
-
-    def openingDoorMessage(self, agent_name):
-        self._sendMessage('Opening door of ' + self._door['room_name'], agent_name)
-
-    def searchingThroughMessage(self, agent_name):
-        self._sendMessage('Searching through ' + self._door['room_name'], agent_name)
-
-    def foundGoalBlockMessage(self, data, agent_name):
-        item_info = dict(list(data['visualization'].items())[:3])
-        self._sendMessage(
-            "Found goal block " + json.dumps(item_info) +
-            " at location (" + ', '.join([str(loc) for loc in data['location']]) + ")", agent_name)
-    def foundBlockMessage(self, data, agent_name):
-        item_info = dict(list(data['visualization'].items())[:3])
-        self._sendMessage(
-            "Found block " + json.dumps(item_info) +
-            " at location (" + ', '.join([str(loc) for loc in data['location']]) + ")", agent_name)
-    def pickingUpBlockMessage(self, data, agent_name):
-        item_info = dict(list(data['visualization'].items())[:3])
-        self._sendMessage(
-            "Picking up goal block " + json.dumps(item_info) +
-            " at location (" + ', '.join([str(loc) for loc in data['location']]) + ")", agent_name)
-
-    def droppingBlockMessage(self, data, location, agent_name):
-        item_info = dict(list(data['visualization'].items())[:3])
-        self._sendMessage(
-            "Droppped goal block " + json.dumps(item_info) +
-            " at location (" + ', '.join([str(loc) for loc in location]) + ")", agent_name)
     #################################################################################################
-    def update_info(self, receivedMessages):
-        for member in self._teamMembers:
-            for msg in receivedMessages[member]:
-                print(msg)
-                # dummy block
-                block = {
-                    'is_drop_zone': False,
-                    'is_goal_block': False,
-                    'is_collectable': True,
-                    'name': 'some_block',
-                    'obj_id': 'some_block',
-                    'location': (0, 0),
-                    'is_movable': True,
-                    'carried_by': [],
-                    'is_traversable': True,
-                    'class_inheritance': ['CollectableBlock', 'EnvObject', 'object'],
-                    'visualization': {'size': -1, 'shape': -1, 'colour': '#00000', 'depth': 80, 'opacity': 1.0}}
+    def read_trust(self):
+        # agentname_trust.csv
+        file_name = self.agent_id + '_trust.csv'
+        #fprint(file_name)
+        if os.path.exists(file_name):
+            with open(file_name, newline='\n') as file:
+                reader = csv.reader(file, delimiter=',')
+                for row in reader:
+                    self._trust[row[0]] = {"member": row[0], "pick-up": row[1], "drop-off": row[2], "found": row[3], "average": row[4],
+                                           "rep": row[5]}
+        else:
+            f = open(file_name, 'x')
+            f.close()
+    def initialize_trust(self):
+        team = self._teamMembers
+        for member in team:
+            self._trust[member] = {"member": member, "pick-up": 0.5, "drop-off": 0.5, "found": 0.5, "average": 0.5,
+                                   "rep": 0.5}
 
-                if "Found goal block: " in msg:
-                    pattern = re.compile("{(.* ?)}")
-                    vis = re.search(pattern, msg).group(0)
-
-                    pattern2 = re.compile("\((.* ?)\)")
-                    loc = re.search(pattern2, msg).group(0)
-                    loc = loc.replace("(", "[")
-                    loc = loc.replace(")", "]")
-                    loc = json.loads(loc)
-                    vis = json.loads(vis)
-                    block['location'] = (loc[0], loc[1])
-                    block['visualization'] = vis
-
-                    goalBlockIndex = self.getGoalBlockIndex(block)
-                    self._foundGoalBlocks[goalBlockIndex] = block
-
-                elif "Picking up goal block: " in msg:
-
-                    pattern = re.compile("{(.* ?)}")
-                    vis = re.search(pattern, msg).group(0)
-
-                    pattern2 = re.compile("\((.* ?)\)")
-                    loc = re.search(pattern2, msg).group(0)
-                    loc = loc.replace("(", "[")
-                    loc = loc.replace(")", "]")
-                    loc = json.loads(loc)
-                    vis = json.loads(vis)
-
-                    block['location'] = (loc[0], loc[1])
-                    block['visualization'] = vis
-
-                    goalBlockIndex = self.getGoalBlockIndex(block)
-                    self._foundGoalBlocks[goalBlockIndex] = None
-
-
-                elif "Droppped goal block: " in msg:
-                    pattern = re.compile("{(.* ?)}")
-                    vis = re.search(pattern, msg).group(0)
-
-                    pattern2 = re.compile("\((.* ?)\)")
-                    loc = re.search(pattern2, msg).group(0)
-                    loc = loc.replace("(", "[")
-                    loc = loc.replace(")", "]")
-                    loc = json.loads(loc)
-                    vis = json.loads(vis)
-                    # do stuff
-                    block['visualization'] = vis
-                    block['location'] = loc
-
-                    goalBlockIndex = self.getGoalBlockIndex(block)
-                    if self._goalBlocks[goalBlockIndex]['location'] == (loc[0], loc[1]):
-                        if self._currentIndex == goalBlockIndex:
-                            self._currentIndex += 1
-                    else:
-                        self._foundGoalBlocks[goalBlockIndex] = block
+    def write_beliefs(self):
+        file_name = self.agent_id + '_trust.csv'
+        with open(file_name, 'w') as file:
+            # TODO add name to file
+            writer = csv.DictWriter(file, ["member", "pick-up", "drop-off", "found", "average", "rep"])
+            #writer.writeheader()
+            names = self._trust.keys()
+            for name in names:
+                writer.writerow(self._trust[name])
+    def foundGoalBlockUpdate(self, block, member):
+        goalBlockIndex = self.getGoalBlockIndex(block)
+        self._foundGoalBlocks[goalBlockIndex] = block
+    def foundBlockUpdate(self, block, member):
+        return
+    def pickUpBlockUpdate(self, block, member):
+        goalBlockIndex = self.getGoalBlockIndex(block)
+        self._foundGoalBlocks[goalBlockIndex] = None
+    def dropBlockUpdate(self, block, member):
+        return
+    def dropGoalBlockUpdate(self, block, member):
+        goalBlockIndex = self.getGoalBlockIndex(block)
+        if self._goalBlocks[goalBlockIndex]['location'] == block['location']:
+            if self._currentIndex == goalBlockIndex:
+                self._currentIndex += 1
+        else:
+            self._foundGoalBlocks[goalBlockIndex] = block
