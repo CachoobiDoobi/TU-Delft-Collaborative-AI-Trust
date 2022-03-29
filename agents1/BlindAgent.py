@@ -1,6 +1,5 @@
 import enum
 import random
-import json
 import csv
 import os
 import numpy as np
@@ -379,7 +378,7 @@ class BlindAgent(BW4TBrain):
                     goal['visualization']['colour'] == charac['colour']:
 
                 # Save goal block locations as mentioned by other agents
-                # Location + member that sent message + trust in member
+                # Location + member that sent message + trust in member for finding blocks action
                 obj = {
                     "location": location,
                     "member": member,
@@ -390,6 +389,7 @@ class BlindAgent(BW4TBrain):
                     # Sort by trust (follow first locations from most trusted team members)
                     self._goal_blocks_locations.sort(key=lambda x: x['trustLevel'], reverse=True)
 
+    # When receiving a "Picking up goal block" message
     def pickUpBlockUpdate(self, block, member):
         location_goal = block['location']
         for loc in self._goal_blocks_locations:
@@ -399,6 +399,7 @@ class BlindAgent(BW4TBrain):
                 if loc not in self._goal_blocks_location_followed_by_others:
                     self._goal_blocks_location_followed_by_others.append(loc)
                 # Sort locations followed ascending on trust level
+                # These locations are going to be checked, so go ascending on trust level (first check least trusted agent)
                 self._goal_blocks_location_followed_by_others.sort(key=lambda x: x['trustLevel'])
 
 
