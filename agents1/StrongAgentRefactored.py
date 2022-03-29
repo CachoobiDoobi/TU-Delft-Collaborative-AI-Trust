@@ -16,21 +16,24 @@ from bw4t.BW4TBrain import BW4TBrain
 
 
 class Phase(enum.Enum):
-    DROP_BLOCK = 9
-    FOLLOW_PATH_TO_GOAL = 8
-    PICKUP_BLOCK = 7
-    FOUND_BLOCK = 6
-    SEARCH_BLOCK = 5
-    PREPARE_ROOM = 4
+    DROP_BLOCK = 9,
+    FOLLOW_PATH_TO_GOAL = 8,
+    PICKUP_BLOCK = 7,
+    FOUND_BLOCK = 6,
+    SEARCH_BLOCK = 5,
+    PREPARE_ROOM = 4,
     PLAN_PATH_TO_DOOR = 1,
     FOLLOW_PATH_TO_CLOSED_DOOR = 2,
-    OPEN_DOOR = 3
+    OPEN_DOOR = 3,
+    CHECK_BLIND_DROP = 10,
+    PATH_BLIND_DROP = 11
 
 
 class StrongAgentRefactored(BW4TBrain):
 
     def __init__(self, settings: Dict[str, object]):
         super().__init__(settings)
+        self._checkBlind = False
         self._currentIndex = 0
         self._foundGoalBlocks = None
         self._currentRoomObjects = None
@@ -45,7 +48,7 @@ class StrongAgentRefactored(BW4TBrain):
         self._doorIndex = 0
         self._blockToPick = None
         self.receivedMessagesIndex = 0
-
+        self._drop_location_blind = None
     def initialize(self):
         super().initialize()
         self._state_tracker = StateTracker(agent_id=self.agent_id)
@@ -71,11 +74,12 @@ class StrongAgentRefactored(BW4TBrain):
             self.initialize_trust()
             self.read_trust()
         self.write_beliefs()
-        #self._sendMessage(Util.reputationMessage(self._trust, self._teamMembers), agent_name)
+        self._sendMessage(Util.reputationMessage(self._trust, self._teamMembers), agent_name)
         #print(self._trust)
         # ------------------------------------
         self._prepareArrayWorld(state)
         self.updateGoalBlocks(state)
+
         self._holdingBlocks = state.get_self()['is_carrying']
         self._prepareDoors(state)
 
@@ -84,9 +88,11 @@ class StrongAgentRefactored(BW4TBrain):
                                  self.pickUpBlockUpdate, self.dropBlockUpdate, self.dropGoalBlockUpdate, self.updateRep)
 
         self._updateWorld(state)
-
+        self.setBlindData()
         while True:
+
             self.checkNextDropPossibility()
+
             if self.checkCurrentBlockDrop():
                 self._phase = Phase.FOLLOW_PATH_TO_GOAL
             if Phase.PLAN_PATH_TO_DOOR == self._phase:
@@ -119,7 +125,7 @@ class StrongAgentRefactored(BW4TBrain):
                     return action, {}
                 self._phase = Phase.FOUND_BLOCK
             if Phase.FOUND_BLOCK == self._phase:
-                self.FOUND_BLOCK_logic(agent_name)
+                self.FOUND_BLOCK_logic(agent_name, self._currentRoomObjects)
             if Phase.PICKUP_BLOCK == self._phase:
                 return self.pickupLogic(agent_name, self._blockToPick, state)
             if Phase.FOLLOW_PATH_TO_GOAL == self._phase:
@@ -138,12 +144,45 @@ class StrongAgentRefactored(BW4TBrain):
                         block, self._goalBlocks[self._currentIndex - 1]['location']), agent_name)
                     return DropObject.__name__, {
                         'object_id': block['obj_id']}
+                self._phase = Phase.PLAN_PATH_TO_DOOR
+            # if Phase.PATH_BLIND_DROP == self._phase:
+            #     self._navigator.reset_full()
+            #     self._navigator.add_waypoints([self._drop_location_blind])
+            #     self._state_tracker.update(state)
+            #     action = self._navigator.get_move_action(self._state_tracker)
+            #     if action is not None:
+            #         return action, {}
+            #     self._phase = Phase.CHECK_BLIND_DROP
+            #
+            # if Phase.CHECK_BLIND_DROP == self._phase:
+            #
+            #     self.CHECK_BLIND_DROP_logic(state, agent_name)
             self._phase = Phase.PLAN_PATH_TO_DOOR
 
     ####################################################################################
     ########################### Action Logic ###########################################
-    def FOUND_BLOCK_logic(self, agent_name):
-        for c in self._currentRoomObjects:
+
+
+    def CHECK_BLIND_DROP_logic(self, state, agent_name):
+        agentLocation = state[self.agent_id]['location']
+        closeObjects = state.get_objects_in_area((agentLocation[0], agentLocation[1]),
+                                                 bottom_right=(agentLocation[0] + 1, agentLocation[1] + 1))
+        # Filter out only blocks
+        closeBlocks = None
+        if closeObjects is not None:
+            closeBlocks = [obj for obj in closeObjects
+                           if 'CollectableBlock' in obj['class_inheritance']]
+        if len(closeBlocks) == 0:
+            self._phase = Phase.PLAN_PATH_TO_DOOR
+            return
+        for c in closeBlocks:
+            if self.isGoalBlock(c):
+                self._sendMessage(Util.foundGoalBlockMessage(c), agent_name)
+                self.manageBlock(c)
+            else:
+                self._sendMessage(Util.foundBlockMessage(c), agent_name)
+    def FOUND_BLOCK_logic(self, agent_name, currentRoomObjects):
+        for c in currentRoomObjects:
             if self.isGoalBlock(c):
                 self._sendMessage(Util.foundGoalBlockMessage(c), agent_name)
                 self.manageBlock(c)
@@ -175,7 +214,7 @@ class StrongAgentRefactored(BW4TBrain):
             self._door = random.choice(self._doors)
         else:
             self._door = self._doors[self._doorIndex]
-            self._doorIndex += 1
+        self._doorIndex += 1
         doorLoc = self._door['location']
         # Location in front of door is south from door
         doorLoc = doorLoc[0], doorLoc[1] + 1
@@ -191,7 +230,7 @@ class StrongAgentRefactored(BW4TBrain):
             return action, {}
         self._phase = Phase.PLAN_PATH_TO_DOOR
         goalBlockIndex = self.getGoalBlockIndex(currentBlock)
-        if goalBlockIndex == None:
+        if goalBlockIndex is None:
             return None, {}
         block = self.getGoalBlockName(state, currentBlock)
         if block is None:
@@ -235,6 +274,8 @@ class StrongAgentRefactored(BW4TBrain):
         return False
 
     def getGoalBlockIndex(self, block):
+        if block is None:
+            return None
         getBlockInfo = lambda x: dict(list(x['visualization'].items())[:3])
         blockInfo = getBlockInfo(block)
         reducedGoalBlocks = [getBlockInfo(x) for x in self._goalBlocks]
@@ -248,7 +289,18 @@ class StrongAgentRefactored(BW4TBrain):
             self._goalBlocks = [goal for goal in state.values()
                                 if 'is_goal_block' in goal and goal['is_goal_block']]
             self._foundGoalBlocks = np.empty(len(self._goalBlocks), dtype=dict)
-
+    def setBlindData(self):
+        if self._drop_location_blind is None:
+            loc = self._goalBlocks[-1]['location']
+            self._drop_location_blind = (loc[0], loc[1] - 1)
+        # if self._doorIndex >= len(self._doors) and self._doorIndex % 2:
+        #     self._checkBlind = True
+        # else:
+        #     self._checkBlind = False
+        if self._doorIndex % 2:
+            self._checkBlind = True
+        else:
+            self._checkBlind = False
     def isGoalBlock(self, block):
         getBlockInfo = lambda x: dict(list(x['visualization'].items())[:3])
         blockInfo = getBlockInfo(block)
@@ -317,8 +369,8 @@ class StrongAgentRefactored(BW4TBrain):
 
     def _updateWorld(self, state):
         agentLocation = state[self.agent_id]['location']
-        closeObjects = state.get_objects_in_area((agentLocation[0] - 2, agentLocation[1] - 2),
-                                                 bottom_right=(agentLocation[0] + 2, agentLocation[1] + 2))
+        closeObjects = state.get_objects_in_area((agentLocation[0] - 1, agentLocation[1] - 1),
+                                                 bottom_right=(agentLocation[0] + 1, agentLocation[1] + 1))
         # Filter out only blocks
         closeBlocks = None
         if closeObjects is not None:
@@ -329,9 +381,9 @@ class StrongAgentRefactored(BW4TBrain):
         self._trustBlief2(state, closeBlocks)
 
         # Update arrayWorld
-        for obj in closeObjects:
-            loc = obj['location']
-            self._arrayWorld[loc[0]][loc[1]] = []
+        # for obj in closeObjects:
+        #     loc = obj['location']
+        #     self._arrayWorld[loc[0]][loc[1]] = []
 
     ###################### TRUST ################################
 
@@ -370,79 +422,19 @@ class StrongAgentRefactored(BW4TBrain):
                 row = self._trust[name]
                 row['name'] = name
                 writer.writerow(row)
-
-    def _trustBlief(self, state, close_objects):
-        '''
-        Baseline implementation of a trust belief. Creates a dictionary with trust belief scores for each team member, for example based on the received messages.
-        '''
-        # You can change the default value to your preference
-
-        # Go throug the seen objects
-        # print(self._arrayWorld)
-        # print("l: ", self._trust)
-        if close_objects is not None:
-            for o in close_objects:
-                loc = o['location']
-                messages = self._arrayWorld[loc[0], loc[1]]
-                # If we find messages for the location of the object
-                if messages is not None and len(messages) > 0:
-                    member = messages[-1]['memberName']
-                    # If last message is 'pick-up' substract from trust
-                    if messages[-1]['action'] == "pick-up":
-                        self._trust[member]['pick-up'] = max(round(self._trust[member]['pick-up'] - 0.1, 3), 0)
-                    # If last message is 'found' or 'drop-of' add to trust
-                    if messages[-1]['action'] == "found" or messages[-1]['action'] == "drop-off":
-                        val = self.check_same_visualizations(o['visualization'], messages[-1]['block'])
-                        self._trust[member]['found'] = min(round(self._trust[member]['found'] + val, 3), 1)
-                    if len(messages) > 1:
-                        i = len(messages) - 2
-                        while i >= 0:
-                            member = messages[i]['memberName']
-                            if messages[-1]['action'] == "drop-off":
-                                self._trust[member]['drop-off'] = min(round(self._trust[member]['drop-off'] + 0.1, 3),
-                                                                      1)
-                                break
-                            if not messages[-1]['action'] == "found":
-                                break
-
-                            val = self.check_same_visualizations(o['visualization'], messages[-1]['block'])
-                            self._trust[member]['found'] = min(round(self._trust[member]['found'] + val, 3), 1)
-
-                            i -= 1
-
-        agentLocation = state[self.agent_id]['location']
-        for x in range(agentLocation[0] - 1, agentLocation[0] + 1):
-            for y in range(agentLocation[1] - 1, agentLocation[1] + 1):
-                messages = self._arrayWorld[x][y]
-                if messages is not None and len(messages) > 0:
-                    member = messages[-1]['memberName']
-                    if isinstance(messages, list) and messages[-1]['action'] == "found" or messages[-1][
-                        'action'] == "drop-off":
-                        if close_objects is None:
-                            self._trust[member][messages[-1]['action']] = max(
-                                round(self._trust[member][messages[-1]['action']] - 0.1, 3), 0)
-                        else:
-                            found = False
-                            for o in close_objects:
-                                if o['location'] == (x, y):
-                                    found = True
-                            if found is False:
-                                self._trust[member][messages[-1]['action']] = max(
-                                    round(self._trust[member][messages[-1]['action']] - 0.1, 3), 0)
     def _trustBlief2(self, state, close_objects):
         agentLocation = state[self.agent_id]['location']
-        for x in range(agentLocation[0] - 1, agentLocation[0] + 1):
-            for y in range(agentLocation[1] - 1, agentLocation[1] + 1):
-                messages = self._arrayWorld[x][y]
-                self._arrayWorld[x][y] = []
-                if len(messages) > 0: #there is some sort of block interaction!
-                    realBlock = self.getObjectAtLocation(close_objects, (x, y))
-                    if realBlock == "MultipleObj":
-                        continue
-                    if realBlock is None: #no actual block there so interaction must end with pickup to be valid!
-                        self.checkPickUpInteraction(messages)
-                    else: #block is there so interaction must end with found or drop-off to be valid!
-                        self.checkFoundInteraction(messages, realBlock)
+        (x, y) = agentLocation
+        messages = self._arrayWorld[x][y]
+        self._arrayWorld[x][y] = []
+        if len(messages) > 0: #there is some sort of block interaction!
+            realBlock = self.getObjectAtLocation(close_objects, (x, y))
+            if realBlock == "MultipleObj":
+                return
+            if realBlock is None: #no actual block there so interaction must end with pickup to be valid!
+                self.checkPickUpInteraction(messages)
+            else: #block is there so interaction must end with found or drop-off to be valid!
+                self.checkFoundInteraction(messages, realBlock)
 
 
     def checkPickUpInteraction(self, interactions): # assume interactions are for the same type of block(same visualization)
@@ -486,23 +478,64 @@ class StrongAgentRefactored(BW4TBrain):
                     properActionOrder = False
         if properActionOrder and not lastActionNotCorrect:
             if actionFreq["drop-off"] + actionFreq['found'] < 1 and actionFreq['pick-up'] == 1:
-                self.increaseDecreaseTrust(members, False) #decrease (cannot pickup block that has never been found!!)
-            self.increaseDecreaseTrust(members, True) # increase trust of all agents
+                self.increaseDecreaseTrust(members, False)  # decrease (cannot pickup block that has never been found!!)
+            self.increaseDecreaseTrust(members, True)  # increase trust of all agents
         elif properActionOrder and lastActionNotCorrect:
             if actionFreq["drop-off"] + actionFreq['found'] > 1:
-                return #keep the same trust
+                return  # keep the same trust
             else:
-                self.increaseDecreaseTrust(members, False) #decrease trust
+                self.increaseDecreaseTrust(members, False)  # decrease trust
         else:
-            self.increaseDecreaseTrust(members, False) #decrease trust
-    def increaseDecreaseTrust(self, members, isIncrease):
+            self.increaseDecreaseTrust(members, False)  # decrease trust
+    def increaseDecreaseTrust(self, members, isIncrease, block=None):
+
         val = -0.1
         if isIncrease:
             val = 0.1
         for member in members:
+            if block is not None:
+                val = self.check_same_visualizations(block['visualization'], member[2])
             self._trust[member[0]][member[1]] = min(max(round(self._trust[member[0]][member[1]] + val, 3), 0), 1)
-    def checkFoundInteraction(self, interactions, real_block):
-        return
+            self._trust[member[0]]['verified'] += 1
+    def checkFoundInteraction(self, interactions, realBlock):
+        actionFreq = {
+            "drop-off": 0,
+            "found": 0,
+            "pick-up": 0
+        }
+        properActionOrder = True
+        lastActionNotCorrect = False
+        members = []
+        for i in range(len(interactions)):
+            inter = interactions[i]
+            action = inter['action']
+            members.append((inter['memberName'], action, inter['block']))
+            # inter['block']
+            actionFreq[action] += 1
+            if i == len(interactions) - 1:
+                if action == 'pick-up':
+                    lastActionNotCorrect = True  # wrong! decrease trust
+                break
+            if action == 'drop-off':
+                if interactions[i + 1]['action'] == 'found':
+                    continue  # good! can be continued!
+                else:
+                    properActionOrder = False
+            elif action == 'found':
+                if interactions[i + 1]['action'] == 'found' or interactions[i + 1]['action'] == 'pick-up':
+                    continue  # good! can be continued!
+                else:
+                    properActionOrder = False
+            elif action == 'pick-up':
+                if interactions[i + 1]['action'] == 'drop-off':
+                    continue  # good! can be continued!
+                else:
+                    properActionOrder = False
+
+        if properActionOrder and not lastActionNotCorrect:
+            self.increaseDecreaseTrust(members, True, realBlock) # increase trust of all agents
+        else:
+            self.increaseDecreaseTrust(members, False) #decrease trust
     def getObjectAtLocation(self, close_objects, location):
         closeBlocks = None
         if close_objects is not None:
@@ -531,8 +564,14 @@ class StrongAgentRefactored(BW4TBrain):
 
     ########################################################################
     ################# Update Info From Team ################################
+    def badTrustCondition(self, member):
+        if (self._trust[member]['average'] < 0.7 or self._trust[member]['verified'] < 3) \
+                and self._trust[member]['rep'] < 0.7:
+            return True
+        return False
+
     def foundGoalBlockUpdate(self, block, member):
-        if self._trust[member]['found'] < 0.7:
+        if self.badTrustCondition(member):
             return
         goalBlockIndex = self.getGoalBlockIndex(block)
         if goalBlockIndex is None:
@@ -543,8 +582,7 @@ class StrongAgentRefactored(BW4TBrain):
         return
 
     def pickUpBlockUpdate(self, block, member):
-        if (self._trust[member]['pick-up'] < 0.7 or self._trust[member]['verified'] < 3) and self._trust[member][
-            'rep'] < 0.7:
+        if self.badTrustCondition(member):
             return
         goalBlockIndex = self.getGoalBlockIndex(block)
         if goalBlockIndex is None:
@@ -552,10 +590,14 @@ class StrongAgentRefactored(BW4TBrain):
         self._foundGoalBlocks[goalBlockIndex] = None
 
     def dropBlockUpdate(self, block, member):
+        if self.badTrustCondition(member):
+            return
+        #TODO: check the block
+        self._checkBlind = True
         return
 
     def dropGoalBlockUpdate(self, block, member):
-        if self._trust[member]['drop-off'] < 0.7:
+        if self.badTrustCondition(member):
             return
         goalBlockIndex = self.getGoalBlockIndex(block)
         if goalBlockIndex is None:
