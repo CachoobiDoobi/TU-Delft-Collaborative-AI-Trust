@@ -44,6 +44,7 @@ class StrongAgentRefactored(BW4TBrain):
         self._doors = None
         self._doorIndex = 0
         self._blockToPick = None
+        self.receivedMessagesIndex = 0
 
     def initialize(self):
         super().initialize()
@@ -63,14 +64,15 @@ class StrongAgentRefactored(BW4TBrain):
                 self._teamMembers.append(member)
                 # Process messages from team members
         receivedMessages = self._processMessages(self._teamMembers)
+        print(receivedMessages)
         # Update trust beliefs for team members
         # -----------------TRUST-----------------
         if self._trust == {}:
             self.initialize_trust()
             self.read_trust()
         self.write_beliefs()
-        self._sendMessage(Util.reputationMessage(self._trust, self._teamMembers), agent_name)
-        print(self._trust)
+        #self._sendMessage(Util.reputationMessage(self._trust, self._teamMembers), agent_name)
+        #print(self._trust)
         # ------------------------------------
         self._prepareArrayWorld(state)
         self.updateGoalBlocks(state)
@@ -272,6 +274,7 @@ class StrongAgentRefactored(BW4TBrain):
         '''
         Enable sending messages in one line of code
         '''
+        print(mssg, sender)
         msg = Message(content=mssg, from_id=sender)
         if msg.content not in self.received_messages:
             self.send_message(msg)
@@ -280,13 +283,15 @@ class StrongAgentRefactored(BW4TBrain):
         '''
         Process incoming messages and create a dictionary with received messages from each team member.
         '''
+        reduced_received_messages = self.received_messages[self.receivedMessagesIndex:]
         receivedMessages = {}
         for member in teamMembers:
             receivedMessages[member] = []
-        for mssg in self.received_messages:
+        for mssg in reduced_received_messages:
             for member in teamMembers:
                 if mssg.from_id == member:
                     receivedMessages[member].append(mssg.content)
+        self.receivedMessagesIndex = len(self.received_messages)
         return receivedMessages
 
     def _prepareArrayWorld(self, state):
@@ -321,7 +326,7 @@ class StrongAgentRefactored(BW4TBrain):
                            if 'CollectableBlock' in obj['class_inheritance']]
 
         # Update trust beliefs for team members
-        self._trustBlief(state, closeBlocks)
+        self._trustBlief2(state, closeBlocks)
 
         # Update arrayWorld
         for obj in closeObjects:
@@ -406,8 +411,8 @@ class StrongAgentRefactored(BW4TBrain):
                             i -= 1
 
         agentLocation = state[self.agent_id]['location']
-        for x in range(agentLocation[0] - 2, agentLocation[0] + 2):
-            for y in range(agentLocation[1] - 2, agentLocation[1] + 2):
+        for x in range(agentLocation[0] - 1, agentLocation[0] + 1):
+            for y in range(agentLocation[1] - 1, agentLocation[1] + 1):
                 messages = self._arrayWorld[x][y]
                 if messages is not None and len(messages) > 0:
                     member = messages[-1]['memberName']
@@ -424,7 +429,90 @@ class StrongAgentRefactored(BW4TBrain):
                             if found is False:
                                 self._trust[member][messages[-1]['action']] = max(
                                     round(self._trust[member][messages[-1]['action']] - 0.1, 3), 0)
+    def _trustBlief2(self, state, close_objects):
+        agentLocation = state[self.agent_id]['location']
+        for x in range(agentLocation[0] - 1, agentLocation[0] + 1):
+            for y in range(agentLocation[1] - 1, agentLocation[1] + 1):
+                messages = self._arrayWorld[x][y]
+                self._arrayWorld[x][y] = []
+                if len(messages) > 0: #there is some sort of block interaction!
+                    realBlock = self.getObjectAtLocation(close_objects, (x, y))
+                    if realBlock == "MultipleObj":
+                        continue
+                    if realBlock is None: #no actual block there so interaction must end with pickup to be valid!
+                        self.checkPickUpInteraction(messages)
+                    else: #block is there so interaction must end with found or drop-off to be valid!
+                        self.checkFoundInteraction(messages, realBlock)
 
+
+    def checkPickUpInteraction(self, interactions): # assume interactions are for the same type of block(same visualization)
+
+        actionFreq = {
+            "drop-off": 0,
+            "found": 0,
+            "pick-up": 0
+        }
+        properActionOrder = True
+        lastActionNotCorrect = False
+        members = []
+        for i in range(len(interactions)):
+            inter = interactions[i]
+            action = inter['action']
+            members.append((inter['memberName'], action))
+            #inter['block']
+            actionFreq[action] += 1
+            if i == len(interactions) - 1 and action != 'pick-up':
+                lastActionNotCorrect = True #wrong! decrease trust
+            if action == 'drop-off':
+                if i == len(interactions) - 1:
+                    break
+                if interactions[i + 1]['action'] == 'found':
+                    continue # good! can be continued!
+                else:
+                    properActionOrder = False
+            elif action == 'found':
+                if i == len(interactions) - 1:
+                    break
+                if interactions[i + 1]['action'] == 'found' or interactions[i + 1]['action'] == 'pick-up':
+                    continue  # good! can be continued!
+                else:
+                    properActionOrder = False
+            elif action == 'pick-up':
+                if i == len(interactions) - 1: # correct case!
+                    continue # increase trust
+                elif interactions[i + 1]['action'] == 'drop-off':
+                    continue # good! can be continued!
+                else:
+                    properActionOrder = False
+        if properActionOrder and not lastActionNotCorrect:
+            if actionFreq["drop-off"] + actionFreq['found'] < 1 and actionFreq['pick-up'] == 1:
+                self.increaseDecreaseTrust(members, False) #decrease (cannot pickup block that has never been found!!)
+            self.increaseDecreaseTrust(members, True) # increase trust of all agents
+        elif properActionOrder and lastActionNotCorrect:
+            if actionFreq["drop-off"] + actionFreq['found'] > 1:
+                return #keep the same trust
+            else:
+                self.increaseDecreaseTrust(members, False) #decrease trust
+        else:
+            self.increaseDecreaseTrust(members, False) #decrease trust
+    def increaseDecreaseTrust(self, members, isIncrease):
+        val = -0.1
+        if isIncrease:
+            val = 0.1
+        for member in members:
+            self._trust[member[0]][member[1]] = min(max(round(self._trust[member[0]][member[1]] + val, 3), 0), 1)
+    def checkFoundInteraction(self, interactions, real_block):
+        return
+    def getObjectAtLocation(self, close_objects, location):
+        closeBlocks = None
+        if close_objects is not None:
+            closeBlocks = [obj for obj in close_objects
+                           if location == obj['location']]
+        if len(closeBlocks) == 0:
+            return None
+        if len(closeBlocks) != 1:
+            return "MultipleObj"
+        return closeBlocks[0]
     def check_same_visualizations(self, vis1, vis2):
         size = 0
         shape = 0
