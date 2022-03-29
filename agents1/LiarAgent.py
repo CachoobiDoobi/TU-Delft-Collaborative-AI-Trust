@@ -171,7 +171,7 @@ class LiarAgent(BW4TBrain):
                 self._navigator.reset_full()
                 room_area = []
                 for area in state.get_room_objects(self._door['room_name']):
-                    if "wall" not in area['name']:
+                    if "wall" not in area['name'] and not self._teamMembers.__contains__(area['name']):
                         room_area.append((area["location"][0], area["location"][1]))
 
                 lie = random.uniform(0, 1)
@@ -237,6 +237,9 @@ class LiarAgent(BW4TBrain):
                 return GrabObject.__name__, {'object_id': self._current_obj['obj_id']}
 
             if Phase.GRAB == self._phase:
+                if not state[agent_name]['is_carrying']:
+                    self._phase = Phase.PLAN_PATH_TO_UNSEARCHED_DOOR
+                    return None, {}
                 self._navigator.reset_full()
                 self._navigator.add_waypoints([self._goal_objects[0]['location']])
                 self._phase = Phase.MOVING_BLOCK
