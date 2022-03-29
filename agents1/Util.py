@@ -59,7 +59,7 @@ class Util():
     def reputationMessage(trust, team_members):
         rep = {}
         for member in team_members:
-            rep[member] = trust[member]['rep']
+            rep[member] = trust[member]['average']
         return "Reputation:" + json.dumps(rep)
 
     @staticmethod
@@ -103,7 +103,7 @@ class Util():
     @staticmethod
     def droppingBlockMessageLie():
         color = "%06x" % random.randint(0, 0xFFFFFF)
-        message = "Droppped goal block {\"size\": 0.5, \"shape\": " + \
+        message = "Dropped goal block {\"size\": 0.5, \"shape\": " + \
                   str(random.randint(0, 2)) + ", \"color\": \"#" + color + \
                   "\"} at location (" + str(random.randint(0, 12)) + ", " + str(random.randint(0, 23)) + ")"
         return message
@@ -114,8 +114,10 @@ class Util():
 
     @staticmethod
     def update_info_general(arrayWorld, receivedMessages, teamMembers,
-                            foundGoalBlockUpdate, foundBlockUpdate, pickUpBlockUpdate, dropBlockUpdate, dropGoalBlockUpdate):
+                            foundGoalBlockUpdate, foundBlockUpdate, pickUpBlockUpdate, dropBlockUpdate, dropGoalBlockUpdate, updateRep):
+        avg_reps = {}
         for member in teamMembers:
+            avg_reps[member] = 0
             for msg in receivedMessages[member]:
                 block = {
                     'is_drop_zone': False,
@@ -197,7 +199,7 @@ class Util():
                     arrayWorld[block['location'][0], block['location'][1]].append({
                         "memberName": member,
                         "block": block['visualization'],
-                        "action": "found",
+                        "action": "pick-up",
                     })
 
                 elif "Dropped goal block " in msg:
@@ -220,7 +222,7 @@ class Util():
                     arrayWorld[block['location'][0], block['location'][1]].append({
                         "memberName": member,
                         "block": block['visualization'],
-                        "action": "found",
+                        "action": "drop-off",
                     })
 
                 elif "Dropped block " in msg:
@@ -243,5 +245,15 @@ class Util():
                     arrayWorld[block['location'][0], block['location'][1]].append({
                         "memberName": member,
                         "block": block['visualization'],
-                        "action": "found",
+                        "action": "drop-off",
                     })
+                elif "Reputation: " in msg:
+                    pattern = re.compile("{(.* ?)}")
+                    rep = re.search(pattern, msg).group(0)
+                    rep = json.loads(rep)
+                    for name in rep.keys():
+                        avg_reps[name] += rep[name]
+        # ASSUMPTION --> every agent communicates rep every tturn for everyone
+        # for member in teamMembers:
+        #     self._trust[member]['rep'] = avg_reps[member] / len(self._teamMembers)
+        updateRep(avg_reps)

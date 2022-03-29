@@ -69,9 +69,8 @@ class LiarAgent(BW4TBrain):
                 self._teamMembers.append(member)
                 # Process messages from team members
         receivedMessages = self._processMessages(self._teamMembers)
+
         # Update trust beliefs for team members
-        # print("alala: ", receivedMessages)
-        # self.checkLocationOfBlock(receivedMessages)
         if self._arrayWorld is None:
             self._arrayWorld = np.empty(state['World']['grid_shape'], dtype=list)
 
@@ -109,13 +108,12 @@ class LiarAgent(BW4TBrain):
                          if 'class_inheritance' in door and 'Door' in door['class_inheritance']]
 
                 if self._searched_doors_index >= len(doors):
-                    # check_next_to_goal_zone = random.uniform(0, 1)
-                    # if check_next_to_goal_zone <= 0.5:
-                    #     self._phase = Phase.CHECK_GOAL_ZONE
-                    #     return None, {}
-                    # else:
-                    self._door = random.choice(doors)
-                    # return None, {}
+                    check_next_to_goal_zone = random.uniform(0, 1)
+                    if check_next_to_goal_zone <= 0.5:
+                        self._phase = Phase.CHECK_GOAL_ZONE
+                        return None, {}
+                    else:
+                        self._door = random.choice(doors)
                 else:
                     self._door = doors[self._searched_doors_index]
                     self._searched_doors_index += 1
@@ -265,8 +263,8 @@ class LiarAgent(BW4TBrain):
                             elif picked is True and location is None:
                                 self._phase = Phase.PLAN_PATH_TO_UNSEARCHED_DOOR
                                 break
-                            print("type1: ", type(location), " actual: ", location)
-                            print("type2: ", type(location[0]), " actual: ", location[0])
+                            # print("type1: ", type(location), " actual: ", location)
+                            # print("type2: ", type(location[0]), " actual: ", location[0])
                             self._navigator.reset_full()
                             self._goal_objects_found.remove(object)
                             if isinstance(location, tuple):
@@ -277,6 +275,47 @@ class LiarAgent(BW4TBrain):
                             self._current_obj = object
                 else:
                     self._phase = Phase.PLAN_PATH_TO_UNSEARCHED_DOOR
+
+                if Phase.CHECK_GOAL_ZONE == self._phase:
+                    loc = [goal for goal in state.values()
+                           if 'is_goal_block' in goal and goal['is_goal_block']][2]['location']
+                    goal_zone = (loc[0], loc[1] - 1)
+                    self._navigator.add_waypoints([goal_zone])
+                    # self._phase = Phase.FOLLOW_PATH_TO_DOOR
+                    self._state_tracker.update(state)
+                    # Follow path to door
+                    action = self._navigator.get_move_action(self._state_tracker)
+                    if action is not None:
+                        return action, {}
+                    objects = state.get_objects_in_area((goal_zone[0], goal_zone[1]),
+                                                             bottom_right=(goal_zone[0], goal_zone[1]))
+                    # Filter out only blocks
+                    closeBlocks = None
+                    if objects is not None:
+                        closeBlocks = [obj for obj in closeObjects
+                                       if 'CollectableBlock' in obj['class_inheritance']]
+
+                    for c in closeBlocks:
+                        if c['visualization']['colour'] == self._goal_objects[i]['visualization']['colour'] and \
+                                c['visualization']['shape'] == self._goal_objects[i]['visualization']['shape'] and \
+                                c['visualization']['size'] == self._goal_objects[i]['visualization']['size'] and \
+                                not c['is_goal_block'] and not c['is_drop_zone']:
+                            if i == 0:
+                                self._phase = Phase.MOVE_TO_OBJECT
+                                self._current_obj = c
+                                self._navigator.reset_full()
+                                self._navigator.add_waypoints([c['location']])
+                                action = self._navigator.get_move_action(self._state_tracker)
+                                return action, {}
+                            else:
+                                self._goal_objects_found.append(c)
+
+                    action = self._navigator.get_move_action(self._state_tracker)
+                    # print("a fct asta aici")
+                    if action is not None:
+                        return action, {}
+                    self._phase = Phase.PLAN_PATH_TO_UNSEARCHED_DOOR
+
 
     def _sendMessage(self, mssg, sender):
         '''
@@ -339,7 +378,7 @@ class LiarAgent(BW4TBrain):
 
         # Go throug the seen objects
         # print(self._arrayWorld)
-        print("l: ", self._trust)
+        # print("l: ", self._trust)
         if close_objects is not None:
             for o in close_objects:
                 loc = o['location']
@@ -359,7 +398,8 @@ class LiarAgent(BW4TBrain):
                         while i >= 0:
                             member = messages[i]['memberName']
                             if messages[-1]['action'] == "drop-off":
-                                self._trust[member]['drop-off'] = min(round(self._trust[member]['drop-off'] + 0.1, 2), 1)
+                                self._trust[member]['drop-off'] = min(round(self._trust[member]['drop-off'] + 0.1, 2),
+                                                                      1)
                                 break
                             if not messages[-1]['action'] == "found":
                                 break
@@ -414,13 +454,13 @@ class LiarAgent(BW4TBrain):
         for member in self._teamMembers:
             for message in receivedMessages[member]:
                 # print("nope: ", member, ": ", str(message))
-                print("pppp: ", str(knownLocation))
+                # print("pppp: ", str(knownLocation))
                 if str(message).startswith("Picking up block") and str(message).endswith(str(knownLocation)):
                     shape = "\"shape\": " + str(visualzation['shape'])
-                    print("l-a luat")
+                    # print("l-a luat")
                     for m in reversed(receivedMessages[member]):
                         if str(m).startswith("Dropped block") and str(m).__contains__(shape):
-                            print("l-a si lasat")
+                            # print("l-a si lasat")
                             pattern = re.compile("{(.* ?)}")
                             vis = re.search(pattern, m).group(0)
 
