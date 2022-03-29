@@ -137,9 +137,10 @@ class StrongAgentRefactored(BW4TBrain):
                     return DropObject.__name__, {
                         'object_id': block['obj_id']}
             self._phase = Phase.PLAN_PATH_TO_DOOR
-####################################################################################
-########################### Action Logic ###########################################
-    def FOUND_BLOCK_logic(self,agent_name):
+
+    ####################################################################################
+    ########################### Action Logic ###########################################
+    def FOUND_BLOCK_logic(self, agent_name):
         for c in self._currentRoomObjects:
             if self.isGoalBlock(c):
                 self._sendMessage(Util.foundGoalBlockMessage(c), agent_name)
@@ -164,6 +165,7 @@ class StrongAgentRefactored(BW4TBrain):
         self._currentRoomObjects = []
         self._phase = Phase.SEARCH_BLOCK
         self._sendMessage(Util.searchingThroughMessage(self._door['room_name']), agent_name)
+
     def PLAN_PATH_TO_DOOR_logic(self, agent_name):
         self._navigator.reset_full()
         if self._doorIndex >= len(self._doors):
@@ -188,16 +190,39 @@ class StrongAgentRefactored(BW4TBrain):
         self._phase = Phase.PLAN_PATH_TO_DOOR
         goalBlockIndex = self.getGoalBlockIndex(currentBlock)
         if goalBlockIndex == None:
-            return
-        self._sendMessage(Util.pickingUpBlockMessage(currentBlock), agent_name)
-        return GrabObject.__name__, {'object_id': currentBlock['obj_id']}
-################################################################################
-####################### Block Logic ############################################
+            return None, {}
+        block = self.getGoalBlockName(state, currentBlock)
+        if block is None:
+            self._foundGoalBlocks[goalBlockIndex] = None
+            return None, {}
+        self._sendMessage(Util.pickingUpBlockMessage(block), agent_name)
+        return GrabObject.__name__, {'object_id': block['obj_id']}
+
+    ################################################################################
+    ####################### Block Logic ############################################
+    def getGoalBlockName(self, state, block):
+        if block is None:
+            return None
+        closeObjects = state.get_objects_in_area((block['location'][0] - 1, block['location'][1] - 1), bottom_right = (block['location'][0] + 1, block['location'][1] + 1))
+        #closeObjects = state.get_closest_objects()
+        closeBlocks = None
+        if closeObjects is not None:
+            closeBlocks = [obj for obj in closeObjects
+                           if 'CollectableBlock' in obj['class_inheritance']]
+        if closeObjects is None:
+            return None
+        for b in closeBlocks:
+            if b['visualization']['colour'] == block['visualization']['colour'] and \
+                                b['visualization']['shape'] == block['visualization']['shape'] and \
+                                b['visualization']['size'] == block['visualization']['size']:
+                return b
+        return None
     def checkNextDropPossibility(self):
-        for i in range (self._currentIndex, len(self._goalBlocks)):
+        for i in range(self._currentIndex, len(self._goalBlocks)):
             if self._foundGoalBlocks[i] is not None and \
-                i not in [self.getGoalBlockIndex(x) for x in self._holdingBlocks]:
-                    self.manageBlock(self._foundGoalBlocks[i])
+                    i not in [self.getGoalBlockIndex(x) for x in self._holdingBlocks]:
+                self.manageBlock(self._foundGoalBlocks[i])
+
     def checkCurrentBlockDrop(self):
         if self._holdingBlocks is None or len(self._holdingBlocks) == 0:
             return False
@@ -206,6 +231,7 @@ class StrongAgentRefactored(BW4TBrain):
         if goalBlockIndex == self._currentIndex:
             return True
         return False
+
     def getGoalBlockIndex(self, block):
         getBlockInfo = lambda x: dict(list(x['visualization'].items())[:3])
         blockInfo = getBlockInfo(block)
@@ -214,11 +240,13 @@ class StrongAgentRefactored(BW4TBrain):
             return reducedGoalBlocks.index(blockInfo)
         except ValueError:
             return None
+
     def updateGoalBlocks(self, state):
         if len(self._goalBlocks) == 0:
             self._goalBlocks = [goal for goal in state.values()
                                 if 'is_goal_block' in goal and goal['is_goal_block']]
             self._foundGoalBlocks = np.empty(len(self._goalBlocks), dtype=dict)
+
     def isGoalBlock(self, block):
         getBlockInfo = lambda x: dict(list(x['visualization'].items())[:3])
         blockInfo = getBlockInfo(block)
@@ -232,12 +260,14 @@ class StrongAgentRefactored(BW4TBrain):
         self._foundGoalBlocks[goalBlockIndex] = block
         if goalBlockIndex in [self.getGoalBlockIndex(x) for x in self._holdingBlocks]:
             return
-        if goalBlockIndex == self._currentIndex or (len(self._holdingBlocks) == 0 and goalBlockIndex > self._currentIndex):
+        if goalBlockIndex == self._currentIndex or (
+                len(self._holdingBlocks) == 0 and goalBlockIndex > self._currentIndex):
             self._phase = Phase.PICKUP_BLOCK
             self._blockToPick = block
             self._navigator.reset_full()
             self._navigator.add_waypoints([block['location']])
-########################################################################################################
+
+    ########################################################################################################
     def _sendMessage(self, mssg, sender):
         '''
         Enable sending messages in one line of code
@@ -274,7 +304,7 @@ class StrongAgentRefactored(BW4TBrain):
         rooms = state.get_all_room_names()
         rooms.sort()
         print(rooms)
-        #rooms = ['room_1',  'room_3', 'room_0',  'room_2', 'room_4', 'room_5', 'room_6', 'room_7', 'room_8']
+        rooms = ['room_3', 'room_1', 'room_0', 'room_2', 'room_4', 'room_5', 'room_6', 'room_7', 'room_8']
         for room in rooms:
             currentDoor = state.get_room_doors(room)
             if len(currentDoor) > 0:
@@ -425,7 +455,8 @@ class StrongAgentRefactored(BW4TBrain):
         return
 
     def pickUpBlockUpdate(self, block, member):
-        if (self._trust[member]['pick-up'] < 0.7 or self._trust[member]['verified'] < 3) and self._trust[member]['rep'] < 0.7:
+        if (self._trust[member]['pick-up'] < 0.7 or self._trust[member]['verified'] < 3) and self._trust[member][
+            'rep'] < 0.7:
             return
         goalBlockIndex = self.getGoalBlockIndex(block)
         if goalBlockIndex is None:
@@ -446,8 +477,7 @@ class StrongAgentRefactored(BW4TBrain):
                 self._currentIndex += 1
         else:
             self._foundGoalBlocks[goalBlockIndex] = block
+
     def updateRep(self, avg_reps):
         for member in self._teamMembers:
             self._trust[member]['rep'] = avg_reps[member] / len(self._teamMembers)
-
-
