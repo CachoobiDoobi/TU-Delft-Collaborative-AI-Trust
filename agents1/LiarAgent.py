@@ -45,7 +45,6 @@ class LiarAgent(BW4TBrain):
         self._door = None
         self._trust = {}
         self._arrayWorld = None
-        self.read_trust()
 
     def initialize(self):
         super().initialize()
@@ -53,6 +52,7 @@ class LiarAgent(BW4TBrain):
         self._navigator = Navigator(agent_id=self.agent_id,
                                     action_set=self.action_set, algorithm=Navigator.A_STAR_ALGORITHM)
         self._searched_doors_index = 0
+        self.read_trust()
 
     def filter_bw4t_observations(self, state):
         return state
@@ -76,7 +76,7 @@ class LiarAgent(BW4TBrain):
 
         Util.update_info_general(self._arrayWorld, receivedMessages, self._teamMembers,
                                  self.foundGoalBlockUpdate, self.foundBlockUpdate, self.pickUpBlockUpdate,
-                                 self.dropBlockUpdate, self.dropGoalBlockUpdate)
+                                 self.dropBlockUpdate, self.dropGoalBlockUpdate, self.updateRep)
 
         # Get agent location & close objects
         agentLocation = state[self.agent_id]['location']
@@ -340,14 +340,17 @@ class LiarAgent(BW4TBrain):
 
     def read_trust(self):
         # agentname_trust.csv
-        file_name = str(self.agent_id) + '_trust.csv'
+        file_name = self.agent_id + '_trust.csv'
         # fprint(file_name)
         if os.path.exists(file_name):
-            with open(file_name, newline='\n') as file:
+            with open(file_name, newline='') as file:
                 reader = csv.reader(file, delimiter=',')
                 for row in reader:
-                    self._trust[row[0]] = {"pick-up": row[1], "drop-off": row[2], "found": row[3], "average": row[4],
-                                           "rep": row[5]}
+                    if row:
+                        self._trust[row[0]] = {"pick-up": float(row[1]), "drop-off": float(row[2]),
+                                               "found": float(row[3]),
+                                               "average": float(row[4]),
+                                               "rep": float(row[5]), "verified": float(row[6])}
         else:
             f = open(file_name, 'x')
             f.close()
@@ -357,18 +360,19 @@ class LiarAgent(BW4TBrain):
     def initialize_trust(self):
         team = self._teamMembers
         for member in team:
-            self._trust[member] = {"pick-up": 0.5, "drop-off": 0.5, "found": 0.5, "average": 0.5,
-                                   "rep": 0.5}
+            self._trust[member] = {"name": member, "pick-up": 0.5, "drop-off": 0.5, "found": 0.5, "average": 0.5,
+                                   "rep": 0.5, "verified": 0}
 
     def write_beliefs(self):
-        file_name = str(self.agent_id) + '_trust.csv'
+        file_name = self.agent_id + '_trust.csv'
         with open(file_name, 'w') as file:
-            # TODO add name to file
-            writer = csv.DictWriter(file, ["pick-up", "drop-off", "found", "average", "rep"])
+            writer = csv.DictWriter(file, ["name", "pick-up", "drop-off", "found", "average", "rep", "verified"])
             # writer.writeheader()
             names = self._trust.keys()
             for name in names:
-                writer.writerow(self._trust[name])
+                row = self._trust[name]
+                row['name'] = name
+                writer.writerow(row)
 
     def _trustBlief(self, members, received, state, close_objects):
         '''
@@ -446,6 +450,9 @@ class LiarAgent(BW4TBrain):
         return
 
     def updateGoalBlocks(self, state):
+        return
+
+    def updateRep(self, avg):
         return
 
     def checkLocationOfBlock(self, receivedMessages, knownLocation, visualzation):
