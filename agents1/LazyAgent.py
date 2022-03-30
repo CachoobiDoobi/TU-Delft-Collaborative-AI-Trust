@@ -706,3 +706,4 @@ class LazyAgent(BW4TBrain):
     def updateRep(self, avg_reps):
         for member in self._teamMembers:
             self._trust[member]['rep'] = avg_reps[member] / len(self._teamMembers)
+
