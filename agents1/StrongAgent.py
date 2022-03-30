@@ -55,7 +55,6 @@ class StrongAgent(BW4TBrain):
         self._state_tracker = StateTracker(agent_id=self.agent_id)
         self._navigator = Navigator(agent_id=self.agent_id,
                                     action_set=self.action_set, algorithm=Navigator.A_STAR_ALGORITHM)
-        self.read_trust()
 
     def filter_bw4t_observations(self, state):
         return state
@@ -559,7 +558,6 @@ class StrongAgent(BW4TBrain):
             return "MultipleObj"
         return closeBlocks[0]
     def check_same_visualizations(self, vis1, vis2):
-        size = 0
         shape = 0
         colour = 0
         if "shape" in vis1 and "shape" in vis2:
@@ -568,7 +566,7 @@ class StrongAgent(BW4TBrain):
         if "colour" in vis1 and "colour" in vis2:
             colour = 0.05 if vis1['colour'] == vis2['colour'] else -0.05
 
-        return size + shape + colour
+        return shape + colour
 
     ########################################################################
     ################# Update Info From Team ################################
@@ -620,5 +618,6 @@ class StrongAgent(BW4TBrain):
             self._foundGoalBlocks[goalBlockIndex] = block
 
     def updateRep(self, avg_reps):
-        for member in self._teamMembers:
-            self._trust[member]['rep'] = avg_reps[member] / len(self._teamMembers)
+        nr_team_mates = len(self._teamMembers)
+        for member in avg_reps.keys():
+            self._trust[member]['rep'] = (avg_reps[member] + (self._trust[member]['rep'] * (nr_team_mates - 1))) / nr_team_mates
