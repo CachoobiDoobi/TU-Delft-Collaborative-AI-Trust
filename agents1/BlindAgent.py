@@ -58,7 +58,6 @@ class BlindAgent(BW4TBrain):
         self._state_tracker = StateTracker(agent_id=self.agent_id)
         self._navigator = Navigator(agent_id=self.agent_id,
                                     action_set=self.action_set, algorithm=Navigator.A_STAR_ALGORITHM)
-        self.read_trust()
 
     # Remove colour from any block visualization
     def filter_bw4t_observations(self, state):
@@ -417,7 +416,6 @@ class BlindAgent(BW4TBrain):
     def read_trust(self):
         # agentname_trust.csv
         file_name = self.agent_id + '_trust.csv'
-        # fprint(file_name)
         if os.path.exists(file_name):
             with open(file_name, newline='') as file:
                 reader = csv.reader(file, delimiter=',')
