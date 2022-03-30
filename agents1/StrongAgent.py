@@ -29,7 +29,7 @@ class Phase(enum.Enum):
     PATH_BLIND_DROP = 11
 
 
-class StrongAgentRefactored(BW4TBrain):
+class StrongAgent(BW4TBrain):
 
     def __init__(self, settings: Dict[str, object]):
         super().__init__(settings)
