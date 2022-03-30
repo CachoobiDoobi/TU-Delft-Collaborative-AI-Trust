@@ -346,6 +346,7 @@ class BlindAgent(BW4TBrain):
                     # Sort by trust (follow first locations from most trusted team members)
                     self._goal_blocks_locations.sort(key=lambda x: x['trustLevel'], reverse=True)
 
+    # When receiving a "Picking up goal block" message
     def pickUpBlockUpdate(self, block, member):
         self.removeLocationFollowedByOther(block)
 
