@@ -53,7 +53,7 @@ class LiarAgent(BW4TBrain):
         self._state_tracker = StateTracker(agent_id=self.agent_id)
         self._navigator = Navigator(agent_id=self.agent_id,
                                     action_set=self.action_set, algorithm=Navigator.A_STAR_ALGORITHM)
-        self._searched_doors_index = 0
+        self._searched_doors_index = None
         self.read_trust()
 
     def filter_bw4t_observations(self, state):
@@ -97,6 +97,8 @@ class LiarAgent(BW4TBrain):
             closeBlocks = [obj for obj in closeObjects
                            if 'CollectableBlock' in obj['class_inheritance']]
 
+        if self._searched_doors_index is None:
+            self._searched_doors_index = list(range(0, len(state.get_all_room_names()) - 1))
         # Update trust beliefs for team members
         # self._trustBlief(state, closeBlocks)
 
@@ -118,7 +120,7 @@ class LiarAgent(BW4TBrain):
                 doors = [door for door in state.values()
                          if 'class_inheritance' in door and 'Door' in door['class_inheritance']]
 
-                if self._searched_doors_index >= len(doors):
+                if len(self._searched_doors_index) <= 0:
                     check_next_to_goal_zone = random.uniform(0, 1)
                     if check_next_to_goal_zone <= 0.5:
                         self._phase = Phase.CHECK_GOAL_ZONE
@@ -129,8 +131,10 @@ class LiarAgent(BW4TBrain):
                 #     print("a dat val")
                 #     return None, {}
                 else:
-                    self._door = doors[self._searched_doors_index]
-                    self._searched_doors_index += 1
+                    print(self._searched_doors_index)
+                    index = random.choice(self._searched_doors_index)
+                    self._door = doors[index]
+                    self._searched_doors_index.remove(index)
 
                 door_location = self._door['location']
                 # Location in front of door is south from door
@@ -590,7 +594,8 @@ class LiarAgent(BW4TBrain):
             for message in receivedMessages[member]:
                 # print("nope: ", member, ": ", str(message))
                 # print("pppp: ", str(knownLocation))
-                if str(message).startswith("Picking up ") and str(message).endswith(str(knownLocation)):
+                if str(message).startswith("Picking up ") and str(message).endswith(str(knownLocation)) and\
+                        self._trust[member]['average'] >= 0.7:
                     shape = "\"shape\": " + str(visualzation['shape'])
                     # print("l-a luat")
                     for m in reversed(receivedMessages[member]):

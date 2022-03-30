@@ -6,7 +6,7 @@ from bw4t.statistics import Statistics
 from agents1.BW4TBaselineAgent import BaseLineAgent
 from agents1.BW4THuman import Human
 from agents1.LazyAgent import LazyAgent
-# from agents1.StrongAgentRefactored import StrongAgentRefactored
+# from agents1.StrongAgent import StrongAgent
 
 import json
 import matplotlib.pyplot as plt
@@ -23,12 +23,7 @@ if __name__ == "__main__":
     agents = [
         {'name':'liar', 'botclass': LiarAgent, 'settings':{}},
         {'name':'lazy', 'botclass': LazyAgent, 'settings':{}},
-        {'name': 'strong', 'botclass': StrongAgentRefactored, 'settings': {}},
-        {'name': 'blind', 'botclass': BlindAgent, 'settings': {}},
-    ]
-        # {'name':'liar', 'botclass': LiarAgent, 'settings':{}},
-        {'name':'lazy', 'botclass': LazyAgent, 'settings':{}},
-        # {'name': 'strong', 'botclass': StrongAgentRefactored, 'settings': {}},
+        {'name': 'strong', 'botclass': StrongAgent, 'settings': {}},
         {'name': 'blind', 'botclass': BlindAgent, 'settings': {}},
     ]
 
@@ -37,7 +32,7 @@ if __name__ == "__main__":
     print("DONE!")
     print(Statistics(world.getLogger().getFileName()))
 
-    ## TRUST TEST + PLOT ###
+    # TRUST TEST + PLOT ###
 
     trusts = {}
     for agent in agents:
