@@ -143,6 +143,7 @@ class StrongAgentRefactored(BW4TBrain):
                 action = self._navigator.get_move_action(self._state_tracker)
                 if action is not None:
                     return action, {}
+                self._phase = Phase.PLAN_PATH_TO_DOOR
                 if len(self._holdingBlocks) > 0:
                     self._currentIndex += 1
                     block = self._holdingBlocks[-1]
@@ -150,7 +151,7 @@ class StrongAgentRefactored(BW4TBrain):
                         block, self._goalBlocks[self._currentIndex - 1]['location']), agent_name)
                     return DropObject.__name__, {
                         'object_id': block['obj_id']}
-                self._phase = Phase.PLAN_PATH_TO_DOOR
+
             if Phase.PATH_BLIND_DROP == self._phase:
                 self._navigator.reset_full()
                 self._navigator.add_waypoints([self._drop_location_blind])
@@ -371,7 +372,7 @@ class StrongAgentRefactored(BW4TBrain):
         self._doors = []
         rooms = state.get_all_room_names()
         random.shuffle(rooms)
-        #rooms = ['room_3', 'room_1', 'room_0', 'room_2', 'room_4', 'room_5', 'room_6', 'room_7', 'room_8']
+        #rooms = ['room_1', 'room_0', 'room_3',  'room_2', 'room_4', 'room_5', 'room_6', 'room_7', 'room_8']
         for room in rooms:
             currentDoor = state.get_room_doors(room)
             if len(currentDoor) > 0:
