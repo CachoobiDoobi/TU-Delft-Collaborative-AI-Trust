@@ -94,7 +94,8 @@ class BlindAgent(BW4TBrain):
         # General update with info from team members
         Util.update_info_general(self._arrayWorld, receivedMessages, self._teamMembers,
                                  self.foundGoalBlockUpdate, self.foundBlockUpdate, self.pickUpBlockUpdate,
-                                 self.dropBlockUpdate, self.dropGoalBlockUpdate, self.updateRep, self.agent_name)
+                                 self.pickUpBlockSimpleUpdate, self.dropBlockUpdate, self.dropGoalBlockUpdate,
+                                 self.updateRep, self.agent_name)
 
         while True:
             if Phase.PLAN_PATH_TO_CLOSED_DOOR == self._phase:
@@ -347,6 +348,12 @@ class BlindAgent(BW4TBrain):
 
     # When receiving a "Picking up goal block" message
     def pickUpBlockUpdate(self, block, member):
+        self.removeLocationFollowedByOther(block)
+
+    def pickUpBlockSimpleUpdate(self, block, member):
+        self.removeLocationFollowedByOther(block)
+
+    def removeLocationFollowedByOther(self, block):
         location_goal = block['location']
         for loc in self._goal_blocks_locations:
             if loc['location'] == location_goal:
