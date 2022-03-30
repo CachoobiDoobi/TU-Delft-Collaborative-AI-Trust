@@ -52,7 +52,7 @@ class Util():
     @staticmethod
     def droppingBlockMessage(data, location):
         item_info = dict(list(data['visualization'].items())[:3])
-        return "Droppped goal block " + json.dumps(item_info) \
+        return "Dropped goal block " + json.dumps(item_info) \
                + " at location (" + ', '.join([str(loc) for loc in location]) + ")"
 
     @staticmethod
@@ -60,7 +60,7 @@ class Util():
         rep = {}
         for member in team_members:
             rep[member] = trust[member]['average']
-        return "Reputation:" + json.dumps(rep)
+        return "Reputation: " + json.dumps(rep)
 
     @staticmethod
     def openingDoorMessageLie(state, door):
@@ -114,10 +114,12 @@ class Util():
 
     @staticmethod
     def update_info_general(arrayWorld, receivedMessages, teamMembers,
-                            foundGoalBlockUpdate, foundBlockUpdate, pickUpBlockUpdate, dropBlockUpdate, dropGoalBlockUpdate, updateRep):
+                            foundGoalBlockUpdate, foundBlockUpdate, pickUpBlockUpdate, dropBlockUpdate, dropGoalBlockUpdate, updateRep, agent_name):
         avg_reps = {}
         for member in teamMembers:
             avg_reps[member] = 0
+
+        for member in teamMembers:
             for msg in receivedMessages[member]:
                 block = {
                     'is_drop_zone': False,
@@ -252,7 +254,8 @@ class Util():
                     rep = re.search(pattern, msg).group(0)
                     rep = json.loads(rep)
                     for name in rep.keys():
-                        avg_reps[name] += rep[name]
+                        if name != agent_name:
+                            avg_reps[name] += rep[name]
         # ASSUMPTION --> every agent communicates rep every tturn for everyone
         # for member in teamMembers:
         #     self._trust[member]['rep'] = avg_reps[member] / len(self._teamMembers)
