@@ -108,13 +108,10 @@ class Util():
                   "\"} at location (" + str(random.randint(0, 12)) + ", " + str(random.randint(0, 23)) + ")"
         return message
 
-
-    # TODO -  Implement methods: foundGoalBlockUpdate, foundBlockUpdate, pickUpBlockUpdate, dropBlockUpdate, dropGoalBlockUpdate
-    # TODO -  In agent class; Each method takes block & member as arguments (use to update for each agent)
-
     @staticmethod
     def update_info_general(arrayWorld, receivedMessages, teamMembers,
-                            foundGoalBlockUpdate, foundBlockUpdate, pickUpBlockUpdate, dropBlockUpdate, dropGoalBlockUpdate, updateRep, agent_name):
+                            foundGoalBlockUpdate, foundBlockUpdate, pickUpBlockUpdate, pickUpBlockSimpleUpdate,
+                            dropBlockUpdate, dropGoalBlockUpdate, updateRep, agent_name):
         avg_reps = {}
         for member in teamMembers:
             avg_reps[member] = 0
@@ -195,6 +192,30 @@ class Util():
                     block['visualization'] = vis
 
                     pickUpBlockUpdate(block, member)
+
+                    if arrayWorld[block['location'][0], block['location'][1]] is None:
+                        arrayWorld[block['location'][0], block['location'][1]] = []
+                    arrayWorld[block['location'][0], block['location'][1]].append({
+                        "memberName": member,
+                        "block": block['visualization'],
+                        "action": "pick-up",
+                    })
+
+                elif "Picking up block " in msg:
+                    pattern = re.compile("{(.* ?)}")
+                    vis = re.search(pattern, msg).group(0)
+
+                    pattern2 = re.compile("\((.* ?)\)")
+                    loc = re.search(pattern2, msg).group(0)
+                    loc = loc.replace("(", "[")
+                    loc = loc.replace(")", "]")
+                    loc = json.loads(loc)
+                    vis = json.loads(vis)
+
+                    block['location'] = (loc[0], loc[1])
+                    block['visualization'] = vis
+
+                    pickUpBlockSimpleUpdate(block, member)
 
                     if arrayWorld[block['location'][0], block['location'][1]] is None:
                         arrayWorld[block['location'][0], block['location'][1]] = []
