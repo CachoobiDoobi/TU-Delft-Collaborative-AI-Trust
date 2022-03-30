@@ -40,29 +40,27 @@ class BlindAgent(BW4TBrain):
         super().__init__(settings)
         self._phase = Phase.PLAN_PATH_TO_CLOSED_DOOR
         self._teamMembers = []
+        self._door = None
+        self._objects = []  # All objects found
+        self._goal_blocks = []  # Universally known goal blocks
+        self._goal_blocks_locations = []  # Goal block locations as said by other agents
+        self._goal_blocks_locations_followed = []  # Goal block locations already followed (by blind)
+        self._goal_blocks_location_followed_by_others = []  # Goal block locations where other agents went
+        self._trustBeliefs = []
+        self._current_obj = None
+        self._drop_location_blind = None
+        self._trust = {}
+        self._arrayWorld = None
+        self.receivedMessagesIndex = 0
 
     def initialize(self):
         super().initialize()
-        self._door = None
         self._state_tracker = StateTracker(agent_id=self.agent_id)
         self._navigator = Navigator(agent_id=self.agent_id,
                                     action_set=self.action_set, algorithm=Navigator.A_STAR_ALGORITHM)
-
-        self._objects = []                                  # All objects found
-        self._goal_blocks = []                              # Universally known goal blocks
-        self._goal_blocks_locations = []                    # Goal block locations as said by other agents
-        self._goal_blocks_locations_followed = []           # Goal block locations already followed (by blind)
-        self._goal_blocks_location_followed_by_others = []  # Goal block locations where other agents went (from messages)
-
-        self._trustBeliefs = []
-
-        self._current_obj = None
-        self._drop_location_blind = None
-
-        self._trust = {}
-        self._arrayWorld = None
         self.read_trust()
 
+    # Remove colour from any block visualization
     def filter_bw4t_observations(self, state):
         for obj in state:
             if "is_collectable" in state[obj] and state[obj]['is_collectable']:
@@ -70,11 +68,6 @@ class BlindAgent(BW4TBrain):
         return state
 
     def decide_on_bw4t_action(self, state: State):
-        if self._trust == {}:
-            self.initialize_trust()
-
-        self.write_beliefs()
-
         state = self.filter_bw4t_observations(state)
         agent_name = state[self.agent_id]['obj_id']
         # Add team members
@@ -84,33 +77,26 @@ class BlindAgent(BW4TBrain):
         # Process messages from team members
         receivedMessages = self._processMessages(self._teamMembers)
 
+        # Initialize trust & write beliefs
+        if self._trust == {}:
+            self.initialize_trust()
+            self.read_trust()
+        self.write_beliefs()
+
         # Update goal blocks information
         self.updateGoalBlocks(state)
 
+        # Initialize array world if empty
         if self._arrayWorld is None:
             self._arrayWorld = np.empty(state['World']['grid_shape'], dtype=list)
 
+        # Update general info from team members
         Util.update_info_general(self._arrayWorld, receivedMessages, self._teamMembers,
                                  self.foundGoalBlockUpdate, self.foundBlockUpdate, self.pickUpBlockUpdate,
-                                 self.dropBlockUpdate, self.dropGoalBlockUpdate)
+                                 self.dropBlockUpdate, self.dropGoalBlockUpdate, self.updateRep)
 
-        # Get agent location & close objects
-        agentLocation = state[self.agent_id]['location']
-        closeObjects = state.get_objects_in_area((agentLocation[0] - 1, agentLocation[1] - 1),
-                                                 bottom_right=(agentLocation[0] + 1, agentLocation[1] + 1))
-        # Filter out only blocks
-        closeBlocks = None
-        if closeObjects is not None:
-            closeBlocks = [obj for obj in closeObjects
-                           if 'CollectableBlock' in obj['class_inheritance']]
-
-        # Update trust beliefs for team members
-        self._trustBlief(state, closeBlocks)
-
-        # Update arrayWorld
-        for obj in closeObjects:
-            loc = obj['location']
-            self._arrayWorld[loc[0]][loc[1]] = []
+        # Update world & trust beliefs for team members
+        self._updateWorld(state)
 
         while True:
             if Phase.PLAN_PATH_TO_CLOSED_DOOR == self._phase:
@@ -173,7 +159,7 @@ class BlindAgent(BW4TBrain):
                     self._sendMessage(Util.searchingThroughMessage(self._door['room_name']), agent_name)
                     return OpenDoorAction.__name__, {'object_id': self._door['obj_id']}
                 else:
-                    # If another agent has openend the door in the meantime, go search room & send message
+                    # If another agent has opened the door in the meantime, go search room & send message
                     self._sendMessage(Util.searchingThroughMessage(self._door['room_name']), agent_name)
                     self._phase = Phase.SEARCH_ROOM
 
@@ -249,7 +235,6 @@ class BlindAgent(BW4TBrain):
                 action = self._navigator.get_move_action(self._state_tracker)
                 return action, {}
 
-
             if Phase.GO_CHECK_PICKUP == self._phase:
                 self._state_tracker.update(state)
                 action = self._navigator.get_move_action(self._state_tracker)
@@ -265,7 +250,8 @@ class BlindAgent(BW4TBrain):
                 objs_in_area = state.get_objects_in_area(location_to_check_followed['location'], 1, 1)
 
                 # Get block at followed location
-                l = list(filter(lambda obj: 'Block' in obj['name'] and obj['location'] == location_to_check_followed, objs_in_area))
+                l = list(filter(lambda obj: 'Block' in obj['name'] and obj['location'] == location_to_check_followed,
+                                objs_in_area))
                 # If object is still there
                 if len(l) > 0:
                     self._current_obj = l[0]
@@ -275,7 +261,6 @@ class BlindAgent(BW4TBrain):
                     return GrabObject.__name__, {'object_id': self._current_obj['obj_id']}
                 else:
                     self._phase = Phase.CHECK_GOAL_TO_FOLLOW
-
 
             if Phase.GRAB == self._phase:
                 self._navigator.reset_full()
@@ -329,13 +314,15 @@ class BlindAgent(BW4TBrain):
         '''
         Process incoming messages and create a dictionary with received messages from each team member.
         '''
+        reduced_received_messages = self.received_messages[self.receivedMessagesIndex:]
         receivedMessages = {}
         for member in teamMembers:
             receivedMessages[member] = []
-        for mssg in self.received_messages:
+        for mssg in reduced_received_messages:
             for member in teamMembers:
                 if mssg.from_id == member:
                     receivedMessages[member].append(mssg.content)
+        self.receivedMessagesIndex = len(self.received_messages)
         return receivedMessages
 
     def initialize_trust(self):
@@ -412,10 +399,32 @@ class BlindAgent(BW4TBrain):
     def dropGoalBlockUpdate(self, block, member):
         return
 
+    def updateRep(self, avg_reps):
+        for member in self._teamMembers:
+            self._trust[member]['rep'] = avg_reps[member] / len(self._teamMembers)
+
     def updateGoalBlocks(self, state):
         if len(self._goal_blocks) == 0:
             self._goal_blocks = [goal for goal in state.values()
                         if 'is_goal_block' in goal and goal['is_goal_block']]
+
+    def _updateWorld(self, state):
+        agentLocation = state[self.agent_id]['location']
+        closeObjects = state.get_objects_in_area((agentLocation[0] - 1, agentLocation[1] - 1),
+                                                 bottom_right=(agentLocation[0] + 2, agentLocation[1] + 2))
+        # Filter out only blocks
+        closeBlocks = None
+        if closeObjects is not None:
+            closeBlocks = [obj for obj in closeObjects
+                           if 'CollectableBlock' in obj['class_inheritance']]
+
+        # Update trust beliefs for team members
+        self._trustBelief(state, closeBlocks)
+
+        # Update arrayWorld
+        for obj in closeObjects:
+            loc = obj['location']
+            self._arrayWorld[loc[0]][loc[1]] = []
 
     def check_same_visualizations(self, vis1, vis2):
         size = 0
@@ -433,7 +442,7 @@ class BlindAgent(BW4TBrain):
 
         return size + shape + colour
 
-    def _trustBlief(self, state, close_objects):
+    def _trustBelief(self, state, close_objects):
         '''
         Baseline implementation of a trust belief. Creates a dictionary with trust belief scores for each team member, for example based on the received messages.
         '''
@@ -461,7 +470,8 @@ class BlindAgent(BW4TBrain):
                         while i >= 0:
                             member = messages[i]['memberName']
                             if messages[-1]['action'] == "drop-off":
-                                self._trust[member]['drop-off'] = min(round(self._trust[member]['drop-off'] + 0.1, 3),1)
+                                self._trust[member]['drop-off'] = min(round(self._trust[member]['drop-off'] + 0.1, 3),
+                                                                      1)
                                 break
                             if not messages[-1]['action'] == "found":
                                 break
@@ -472,8 +482,8 @@ class BlindAgent(BW4TBrain):
                             i -= 1
 
         agentLocation = state[self.agent_id]['location']
-        for x in range(agentLocation[0] - 1, agentLocation[0] + 2):
-            for y in range(agentLocation[1] - 1, agentLocation[0] + 2):
+        for x in range(agentLocation[0] - 1, agentLocation[0] + 1):
+            for y in range(agentLocation[1] - 1, agentLocation[1] + 1):
                 messages = self._arrayWorld[x][y]
                 if messages is not None and len(messages) > 0:
                     member = messages[-1]['memberName']
