@@ -33,7 +33,7 @@ class StrongAgentRefactored(BW4TBrain):
 
     def __init__(self, settings: Dict[str, object]):
         super().__init__(settings)
-        self._checkBlind = False
+        self._checkBlind = (False, False)
         self._currentIndex = 0
         self._foundGoalBlocks = None
         self._currentRoomObjects = None
@@ -145,42 +145,39 @@ class StrongAgentRefactored(BW4TBrain):
                     return DropObject.__name__, {
                         'object_id': block['obj_id']}
                 self._phase = Phase.PLAN_PATH_TO_DOOR
-            # if Phase.PATH_BLIND_DROP == self._phase:
-            #     self._navigator.reset_full()
-            #     self._navigator.add_waypoints([self._drop_location_blind])
-            #     self._state_tracker.update(state)
-            #     action = self._navigator.get_move_action(self._state_tracker)
-            #     if action is not None:
-            #         return action, {}
-            #     self._phase = Phase.CHECK_BLIND_DROP
-            #
-            # if Phase.CHECK_BLIND_DROP == self._phase:
-            #
-            #     self.CHECK_BLIND_DROP_logic(state, agent_name)
+            if Phase.PATH_BLIND_DROP == self._phase:
+                self._navigator.reset_full()
+                self._navigator.add_waypoints([self._drop_location_blind])
+                self._state_tracker.update(state)
+                action = self._navigator.get_move_action(self._state_tracker)
+                if action is not None:
+                    return action, {}
+                self._phase = Phase.CHECK_BLIND_DROP
+
+            if Phase.CHECK_BLIND_DROP == self._phase:
+                self._checkBlind = (self._checkBlind[0], False)
+                agentLocation = state[self.agent_id]['location']
+                closeObjects = state.get_objects_in_area((agentLocation[0], agentLocation[1]),
+                                                         bottom_right=(agentLocation[0] + 1, agentLocation[1] + 1))
+                # Filter out only blocks
+                closeBlocks = None
+                if closeObjects is not None:
+                    closeBlocks = [obj for obj in closeObjects
+                                   if 'CollectableBlock' in obj['class_inheritance']]
+                if len(closeBlocks) == 0:
+                    self._phase = Phase.PLAN_PATH_TO_DOOR
+                    return None, {}
+                for c in closeBlocks:
+                    if self.isGoalBlock(c):
+                        self._sendMessage(Util.foundGoalBlockMessage(c), agent_name)
+                        self.manageBlock(c)
+                    else:
+                        self._sendMessage(Util.foundBlockMessage(c), agent_name)
             self._phase = Phase.PLAN_PATH_TO_DOOR
 
     ####################################################################################
     ########################### Action Logic ###########################################
 
-
-    def CHECK_BLIND_DROP_logic(self, state, agent_name):
-        agentLocation = state[self.agent_id]['location']
-        closeObjects = state.get_objects_in_area((agentLocation[0], agentLocation[1]),
-                                                 bottom_right=(agentLocation[0] + 1, agentLocation[1] + 1))
-        # Filter out only blocks
-        closeBlocks = None
-        if closeObjects is not None:
-            closeBlocks = [obj for obj in closeObjects
-                           if 'CollectableBlock' in obj['class_inheritance']]
-        if len(closeBlocks) == 0:
-            self._phase = Phase.PLAN_PATH_TO_DOOR
-            return
-        for c in closeBlocks:
-            if self.isGoalBlock(c):
-                self._sendMessage(Util.foundGoalBlockMessage(c), agent_name)
-                self.manageBlock(c)
-            else:
-                self._sendMessage(Util.foundBlockMessage(c), agent_name)
     def FOUND_BLOCK_logic(self, agent_name, currentRoomObjects):
         for c in currentRoomObjects:
             if self.isGoalBlock(c):
@@ -209,9 +206,15 @@ class StrongAgentRefactored(BW4TBrain):
 
     def PLAN_PATH_TO_DOOR_logic(self, agent_name):
         self._navigator.reset_full()
+        if self._checkBlind[1]:
+            self._phase = Phase.PATH_BLIND_DROP
+            return None, {}
         if self._doorIndex >= len(self._doors):
             # Randomly pick a closed door
             self._door = random.choice(self._doors)
+            if self._checkBlind[0]:
+                self._phase = Phase.PATH_BLIND_DROP
+                return None, {}
         else:
             self._door = self._doors[self._doorIndex]
         self._doorIndex += 1
@@ -293,14 +296,10 @@ class StrongAgentRefactored(BW4TBrain):
         if self._drop_location_blind is None:
             loc = self._goalBlocks[-1]['location']
             self._drop_location_blind = (loc[0], loc[1] - 1)
-        # if self._doorIndex >= len(self._doors) and self._doorIndex % 2:
-        #     self._checkBlind = True
-        # else:
-        #     self._checkBlind = False
         if self._doorIndex % 2:
-            self._checkBlind = True
+            self._checkBlind = (True, self._checkBlind[1])
         else:
-            self._checkBlind = False
+            self._checkBlind = (False, self._checkBlind[1])
     def isGoalBlock(self, block):
         getBlockInfo = lambda x: dict(list(x['visualization'].items())[:3])
         blockInfo = getBlockInfo(block)
@@ -361,7 +360,7 @@ class StrongAgentRefactored(BW4TBrain):
         rooms = state.get_all_room_names()
         rooms.sort()
         print(rooms)
-        rooms = ['room_3', 'room_1', 'room_0', 'room_2', 'room_4', 'room_5', 'room_6', 'room_7', 'room_8']
+        #rooms = ['room_3', 'room_1', 'room_0', 'room_2', 'room_4', 'room_5', 'room_6', 'room_7', 'room_8']
         for room in rooms:
             currentDoor = state.get_room_doors(room)
             if len(currentDoor) > 0:
@@ -592,8 +591,8 @@ class StrongAgentRefactored(BW4TBrain):
     def dropBlockUpdate(self, block, member):
         if self.badTrustCondition(member):
             return
-        #TODO: check the block
-        self._checkBlind = True
+        if block['location'] == self._drop_location_blind:
+            self._checkBlind = (self._checkBlind[0], True)
         return
 
     def dropGoalBlockUpdate(self, block, member):
