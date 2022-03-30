@@ -74,8 +74,7 @@ class StrongAgentRefactored(BW4TBrain):
             self.initialize_trust()
             self.read_trust()
         self.write_beliefs()
-        self._sendMessage(Util.reputationMessage(self._trust, self._teamMembers), agent_name)
-        #print(self._trust)
+        #self._sendMessage(Util.reputationMessage(self._trust, self._teamMembers), agent_name)
         # ------------------------------------
         self._prepareArrayWorld(state)
         self.updateGoalBlocks(state)
@@ -85,14 +84,18 @@ class StrongAgentRefactored(BW4TBrain):
 
         Util.update_info_general(self._arrayWorld, receivedMessages, self._teamMembers,
                                  self.foundGoalBlockUpdate, self.foundBlockUpdate,
-                                 self.pickUpBlockUpdate, self.dropBlockUpdate, self.dropGoalBlockUpdate, self.updateRep)
+                                 self.pickUpBlockUpdate, self.dropBlockUpdate, self.dropGoalBlockUpdate, self.updateRep, agent_name)
 
         self._updateWorld(state)
         self.setBlindData()
         while True:
-
+            # droppableBlock = self.dropOldGoalBlock()
+            # if droppableBlock is not None:
+            #     self._sendMessage(Util.droppingBlockMessage(
+            #         droppableBlock, self._goalBlocks[self._currentIndex - 1]['location']), agent_name)
+            #     return DropObject.__name__, {
+            #         'object_id': droppableBlock['obj_id']}
             self.checkNextDropPossibility()
-
             if self.checkCurrentBlockDrop():
                 self._phase = Phase.FOLLOW_PATH_TO_GOAL
             if Phase.PLAN_PATH_TO_DOOR == self._phase:
@@ -209,15 +212,16 @@ class StrongAgentRefactored(BW4TBrain):
         if self._checkBlind[1]:
             self._phase = Phase.PATH_BLIND_DROP
             return None, {}
+
         if self._doorIndex >= len(self._doors):
             # Randomly pick a closed door
             self._door = random.choice(self._doors)
             if self._checkBlind[0]:
                 self._phase = Phase.PATH_BLIND_DROP
                 return None, {}
-        else:
-            self._door = self._doors[self._doorIndex]
+        self._door = self._doors[self._doorIndex]
         self._doorIndex += 1
+
         doorLoc = self._door['location']
         # Location in front of door is south from door
         doorLoc = doorLoc[0], doorLoc[1] + 1
@@ -244,6 +248,12 @@ class StrongAgentRefactored(BW4TBrain):
 
     ################################################################################
     ####################### Block Logic ############################################
+    def dropOldGoalBlock(self):
+        for block in self._holdingBlocks:
+            if self.getGoalBlockIndex(block) < self._currentIndex:
+                return block
+        return None
+
     def getGoalBlockName(self, state, block):
         if block is None:
             return None
@@ -325,7 +335,6 @@ class StrongAgentRefactored(BW4TBrain):
         '''
         Enable sending messages in one line of code
         '''
-        print(mssg, sender)
         msg = Message(content=mssg, from_id=sender)
         if msg.content not in self.received_messages:
             self.send_message(msg)
@@ -358,8 +367,7 @@ class StrongAgentRefactored(BW4TBrain):
             return
         self._doors = []
         rooms = state.get_all_room_names()
-        rooms.sort()
-        print(rooms)
+        random.shuffle(rooms)
         #rooms = ['room_3', 'room_1', 'room_0', 'room_2', 'room_4', 'room_5', 'room_6', 'room_7', 'room_8']
         for room in rooms:
             currentDoor = state.get_room_doors(room)
@@ -379,17 +387,18 @@ class StrongAgentRefactored(BW4TBrain):
         # Update trust beliefs for team members
         self._trustBlief2(state, closeBlocks)
 
-        # Update arrayWorld
-        # for obj in closeObjects:
-        #     loc = obj['location']
-        #     self._arrayWorld[loc[0]][loc[1]] = []
+        for member in self._teamMembers:
+            avg = 0
+            for key in self._trust[member].keys():
+                if key in ["pick-up", "drop-off", "found"]:
+                    avg += self._trust[member][key] / 3.0
+            self._trust[member]['average'] = avg
 
     ###################### TRUST ################################
 
     def read_trust(self):
         # agentname_trust.csv
         file_name = self.agent_id + '_trust.csv'
-        # fprint(file_name)
         if os.path.exists(file_name):
             with open(file_name, newline='') as file:
                 reader = csv.reader(file, delimiter=',')
@@ -398,17 +407,16 @@ class StrongAgentRefactored(BW4TBrain):
                         self._trust[row[0]] = {"pick-up": float(row[1]), "drop-off": float(row[2]),
                                                "found": float(row[3]),
                                                "average": float(row[4]),
+
                                                "rep": float(row[5]), "verified": float(row[6])}
         else:
             f = open(file_name, 'x')
             f.close()
 
-        # print(self._trust)
-
     def initialize_trust(self):
         team = self._teamMembers
         for member in team:
-            self._trust[member] = {"name": member, "pick-up": 0.5, "drop-off": 0.5, "found": 0.5, "average": 0.5,
+            self._trust[member] = {"pick-up": 0.5, "drop-off": 0.5, "found": 0.5, "average": 0.5,
                                    "rep": 0.5, "verified": 0}
 
     def write_beliefs(self):
@@ -421,6 +429,7 @@ class StrongAgentRefactored(BW4TBrain):
                 row = self._trust[name]
                 row['name'] = name
                 writer.writerow(row)
+
     def _trustBlief2(self, state, close_objects):
         agentLocation = state[self.agent_id]['location']
         (x, y) = agentLocation
@@ -549,15 +558,11 @@ class StrongAgentRefactored(BW4TBrain):
         size = 0
         shape = 0
         colour = 0
-
-        if "size" in vis1 and "size" in vis2:
-            size = 0.033 if vis1['size'] == vis2['size'] else -0.033
-
         if "shape" in vis1 and "shape" in vis2:
-            shape = 0.033 if vis1['shape'] == vis2['shape'] else -0.033
+            shape = 0.05 if vis1['shape'] == vis2['shape'] else -0.05
 
         if "colour" in vis1 and "colour" in vis2:
-            colour = 0.033 if vis1['colour'] == vis2['colour'] else -0.033
+            colour = 0.05 if vis1['colour'] == vis2['colour'] else -0.05
 
         return size + shape + colour
 
@@ -604,6 +609,7 @@ class StrongAgentRefactored(BW4TBrain):
         if self._goalBlocks[goalBlockIndex]['location'] == block['location']:
             if self._currentIndex == goalBlockIndex:
                 self._currentIndex += 1
+                # TODO if hold current goal block drop it!
         else:
             self._foundGoalBlocks[goalBlockIndex] = block
 
