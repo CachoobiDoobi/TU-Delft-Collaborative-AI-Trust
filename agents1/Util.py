@@ -114,9 +114,7 @@ class Util():
                             dropBlockUpdate, dropGoalBlockUpdate, updateRep, agent_name):
         avg_reps = {}
         for member in teamMembers:
-            avg_reps[member] = 0
-
-        for member in teamMembers:
+            #avg_reps[member] = 0
             for msg in receivedMessages[member]:
                 block = {
                     'is_drop_zone': False,
@@ -274,10 +272,8 @@ class Util():
                     pattern = re.compile("{(.* ?)}")
                     rep = re.search(pattern, msg).group(0)
                     rep = json.loads(rep)
+
                     for name in rep.keys():
                         if name != agent_name:
-                            avg_reps[name] += rep[name]
-        # ASSUMPTION --> every agent communicates rep every tturn for everyone
-        # for member in teamMembers:
-        #     self._trust[member]['rep'] = avg_reps[member] / len(self._teamMembers)
-        updateRep(avg_reps)
+                            avg_reps[name] = rep[name]
+                    updateRep(avg_reps)
