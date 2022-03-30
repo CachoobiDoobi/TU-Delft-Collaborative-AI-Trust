@@ -58,7 +58,6 @@ class BlindAgent(BW4TBrain):
         self._state_tracker = StateTracker(agent_id=self.agent_id)
         self._navigator = Navigator(agent_id=self.agent_id,
                                     action_set=self.action_set, algorithm=Navigator.A_STAR_ALGORITHM)
-        self.read_trust()
 
     # Remove colour from any block visualization
     def filter_bw4t_observations(self, state):
@@ -186,9 +185,9 @@ class BlindAgent(BW4TBrain):
                 for loc in self._goal_blocks_locations:
                     # There is a location at which another agent found a goal block
                     # & no other agent said it's going to pick it up
-                    if loc not in self._goal_blocks_locations_followed:
+                    if loc['location'] not in self._goal_blocks_locations_followed:
                         follow = loc['location']
-                        self._goal_blocks_locations_followed.append(loc)
+                        self._goal_blocks_locations_followed.append(follow)
                         break
 
                 if follow is not None:
@@ -211,7 +210,7 @@ class BlindAgent(BW4TBrain):
                     return action, {}
 
                 # Get followed location
-                location_goal = self._goal_blocks_locations_followed[-1]['location']
+                location_goal = self._goal_blocks_locations_followed[-1]
                 # Get objects in area of location
                 objs_in_area = state.get_objects_in_area(location_goal, 1, 1)
                 # Get block at followed location
@@ -326,6 +325,13 @@ class BlindAgent(BW4TBrain):
 
     ###### UPDATE METHODS ########
     def foundGoalBlockUpdate(self, block, member):
+
+        # Update trust for objects already in goal_blocks_locations
+        for obj in self._goal_blocks_locations:
+            member = obj['member']
+            trust = self._trust[member]['found'] if self._trust[member]['verified'] > 2 else self._trust[member]['rep']
+            obj['trustLevel'] = trust
+
         location = block['location']
         charac = block['visualization']
 
@@ -339,12 +345,13 @@ class BlindAgent(BW4TBrain):
                 obj = {
                     "location": location,
                     "member": member,
-                    "trustLevel": self._trust[member]['found']
+                    "trustLevel": self._trust[member]['found'] if self._trust[member]['verified'] > 2 else self._trust[member]['rep']
                 }
                 if obj not in self._goal_blocks_locations:
                     self._goal_blocks_locations.append(obj)
-                    # Sort by trust (follow first locations from most trusted team members)
-                    self._goal_blocks_locations.sort(key=lambda x: x['trustLevel'], reverse=True)
+
+        # Sort by trust (follow first locations from most trusted team members)
+        self._goal_blocks_locations.sort(key=lambda x: x['trustLevel'], reverse=True)
 
     # When receiving a "Picking up goal block" message
     def pickUpBlockUpdate(self, block, member):
@@ -358,12 +365,18 @@ class BlindAgent(BW4TBrain):
         for loc in self._goal_blocks_locations:
             if loc['location'] == location_goal:
                 self._goal_blocks_locations.remove(loc)
-
                 if loc not in self._goal_blocks_location_followed_by_others:
                     self._goal_blocks_location_followed_by_others.append(loc)
-                # Sort locations followed ascending on trust level
-                # These locations are going to be checked, so go ascending on trust level (first check least trusted agent)
-                self._goal_blocks_location_followed_by_others.sort(key=lambda x: x['trustLevel'])
+
+        # Update trust for all objs in goal_blocks_location_followed_by_others
+        for obj in self._goal_blocks_location_followed_by_others:
+            member = obj['member']
+            trust = self._trust[member]['pick-up'] if self._trust[member]['verified'] > 2 else self._trust[member]['rep']
+            obj['trustLevel'] = trust
+
+        # Sort locations followed ascending on trust level
+        # These locations are going to be checked, so go ascending on trust level (first check least trusted agent)
+        self._goal_blocks_location_followed_by_others.sort(key=lambda x: x['trustLevel'])
 
     def foundBlockUpdate(self, block, member):
         return
@@ -375,8 +388,10 @@ class BlindAgent(BW4TBrain):
         return
 
     def updateRep(self, avg_reps):
-        for member in self._teamMembers:
-            self._trust[member]['rep'] = avg_reps[member] / len(self._teamMembers)
+        nr_team_mates = len(self._teamMembers)
+        for member in avg_reps.keys():
+            self._trust[member]['rep'] = (avg_reps[member] + (
+                        self._trust[member]['rep'] * (nr_team_mates - 1))) / nr_team_mates
 
     def updateGoalBlocks(self, state):
         if len(self._goal_blocks) == 0:
@@ -417,7 +432,6 @@ class BlindAgent(BW4TBrain):
     def read_trust(self):
         # agentname_trust.csv
         file_name = self.agent_id + '_trust.csv'
-        # fprint(file_name)
         if os.path.exists(file_name):
             with open(file_name, newline='') as file:
                 reader = csv.reader(file, delimiter=',')
