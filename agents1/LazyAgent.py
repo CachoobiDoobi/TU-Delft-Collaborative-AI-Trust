@@ -468,6 +468,9 @@ class LazyAgent(BW4TBrain):
                         val = self.check_same_visualizations(o['visualization'], messages[-1]['block'])
                         self._trust[member]['found'] = min(round(self._trust[member]['found'] + val, 3), 1)
 
+                        val = self.check_same_visualizations(o['visualization'], messages[-1]['block'])
+                        self._trust[member]['found'] = min(round(self._trust[member]['found'] + val, 3), 1)
+
                     if len(messages) > 1:
                         i = len(messages) - 2
                         while i >= 0:
