@@ -644,6 +644,7 @@ class LiarAgent(BW4TBrain):
         return
 
     def updateRep(self, avg_reps):
-        for member in self._teamMembers:
-            self._trust[member]['rep'] = avg_reps[member] / len(self._teamMembers)
-
+        nr_team_mates = len(self._teamMembers)
+        for member in avg_reps.keys():
+            self._trust[member]['rep'] = (avg_reps[member] + (
+                        self._trust[member]['rep'] * (nr_team_mates - 1))) / nr_team_mates
