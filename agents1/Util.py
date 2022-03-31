@@ -113,8 +113,8 @@ class Util():
                             foundGoalBlockUpdate, foundBlockUpdate, pickUpBlockUpdate, pickUpBlockSimpleUpdate,
                             dropBlockUpdate, dropGoalBlockUpdate, updateRep, agent_name):
         avg_reps = {}
+
         for member in teamMembers:
-            #avg_reps[member] = 0
             for msg in receivedMessages[member]:
                 block = {
                     'is_drop_zone': False,
@@ -276,4 +276,5 @@ class Util():
                     for name in rep.keys():
                         if name != agent_name:
                             avg_reps[name] = rep[name]
+
                     updateRep(avg_reps)
