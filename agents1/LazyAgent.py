@@ -100,7 +100,8 @@ class LazyAgent(BW4TBrain):
 
         Util.update_info_general(self._arrayWorld, receivedMessages, self._teamMembers,
                                  self.foundGoalBlockUpdate, self.foundBlockUpdate, self.pickUpBlockUpdate,
-                                 self.dropBlockUpdate, self.dropGoalBlockUpdate, self.updateRep, self.agent_name)
+                                 self.pickUpBlockSimpleUpdate, self.dropBlockUpdate, self.dropGoalBlockUpdate,
+                                 self.updateRep, self.agent_name)
 
         while True:
             if Phase.START == self._phase:
@@ -430,6 +431,18 @@ class LazyAgent(BW4TBrain):
 
         return shape and colour
 
+    def check_same_visualization(self, vis1, vis2):
+        shape = 0
+        colour = 0
+
+        if "shape" in vis1 and "shape" in vis2:
+            shape = 0.05 if vis1['shape'] == vis2['shape'] else -0.05
+
+        if "colour" in vis1 and "colour" in vis2:
+            colour = 0.05 if vis1['colour'] == vis2['colour'] else -0.05
+
+        return shape + colour
+
     ####################################################
     #                       MESSAGES
     ####################################################
@@ -485,6 +498,9 @@ class LazyAgent(BW4TBrain):
             return
 
     def dropBlockUpdate(self, block, member):
+        return
+
+    def pickUpBlockSimpleUpdate(self, block, member):
         return
 
     def _processMessages(self, teamMembers):
@@ -578,13 +594,12 @@ class LazyAgent(BW4TBrain):
             self.increaseDecreaseTrust(members, False)  # decrease trust
 
     def increaseDecreaseTrust(self, members, isIncrease, block=None):
-
         val = -0.1
         if isIncrease:
             val = 0.1
         for member in members:
             if block is not None:
-                val = self.check_same_visualizations(block['visualization'], member[2])
+                val = self.check_same_visualization(block['visualization'], member[2])
             self._trust[member[0]][member[1]] = min(max(round(self._trust[member[0]][member[1]] + val, 3), 0), 1)
             self._trust[member[0]]['verified'] += 1
 

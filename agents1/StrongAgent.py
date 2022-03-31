@@ -143,6 +143,8 @@ class StrongAgent(BW4TBrain):
                 action = self._navigator.get_move_action(self._state_tracker)
                 if action is not None:
                     return action, {}
+
+
                 if len(self._holdingBlocks) > 0:
                     self._currentIndex += 1
                     block = self._holdingBlocks[-1]
@@ -150,7 +152,8 @@ class StrongAgent(BW4TBrain):
                         block, self._goalBlocks[self._currentIndex - 1]['location']), agent_name)
                     return DropObject.__name__, {
                         'object_id': block['obj_id']}
-                self._phase = Phase.PLAN_PATH_TO_DOOR
+
+
             if Phase.PATH_BLIND_DROP == self._phase:
                 self._navigator.reset_full()
                 self._navigator.add_waypoints([self._drop_location_blind])
@@ -371,7 +374,7 @@ class StrongAgent(BW4TBrain):
         self._doors = []
         rooms = state.get_all_room_names()
         random.shuffle(rooms)
-        #rooms = ['room_3', 'room_1', 'room_0', 'room_2', 'room_4', 'room_5', 'room_6', 'room_7', 'room_8']
+        #rooms = ['room_1', 'room_0', 'room_3',  'room_2', 'room_4', 'room_5', 'room_6', 'room_7', 'room_8']
         for room in rooms:
             currentDoor = state.get_room_doors(room)
             if len(currentDoor) > 0:
@@ -558,7 +561,7 @@ class StrongAgent(BW4TBrain):
             return "MultipleObj"
         return closeBlocks[0]
     def check_same_visualizations(self, vis1, vis2):
-        size = 0
+
         shape = 0
         colour = 0
         if "shape" in vis1 and "shape" in vis2:
@@ -567,7 +570,7 @@ class StrongAgent(BW4TBrain):
         if "colour" in vis1 and "colour" in vis2:
             colour = 0.05 if vis1['colour'] == vis2['colour'] else -0.05
 
-        return size + shape + colour
+        return shape + colour
 
     ########################################################################
     ################# Update Info From Team ################################
@@ -619,5 +622,6 @@ class StrongAgent(BW4TBrain):
             self._foundGoalBlocks[goalBlockIndex] = block
 
     def updateRep(self, avg_reps):
-        for member in self._teamMembers:
-            self._trust[member]['rep'] = avg_reps[member] / len(self._teamMembers)
+        nr_team_mates = len(self._teamMembers)
+        for member in avg_reps.keys():
+            self._trust[member]['rep'] = (avg_reps[member] + (self._trust[member]['rep'] * (nr_team_mates - 1))) / nr_team_mates

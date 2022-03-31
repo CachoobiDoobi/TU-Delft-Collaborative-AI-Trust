@@ -103,18 +103,15 @@ class Util():
     @staticmethod
     def droppingBlockMessageLie():
         color = "%06x" % random.randint(0, 0xFFFFFF)
-        message = "Droppped goal block {\"size\": 0.5, \"shape\": " + \
+        message = "Dropped goal block {\"size\": 0.5, \"shape\": " + \
                   str(random.randint(0, 2)) + ", \"color\": \"#" + color + \
                   "\"} at location (" + str(random.randint(0, 12)) + ", " + str(random.randint(0, 23)) + ")"
         return message
 
-
-    # TODO -  Implement methods: foundGoalBlockUpdate, foundBlockUpdate, pickUpBlockUpdate, dropBlockUpdate, dropGoalBlockUpdate
-    # TODO -  In agent class; Each method takes block & member as arguments (use to update for each agent)
-
     @staticmethod
     def update_info_general(arrayWorld, receivedMessages, teamMembers,
-                            foundGoalBlockUpdate, foundBlockUpdate, pickUpBlockUpdate, dropBlockUpdate, dropGoalBlockUpdate, updateRep, agent_name):
+                            foundGoalBlockUpdate, foundBlockUpdate, pickUpBlockUpdate, pickUpBlockSimpleUpdate,
+                            dropBlockUpdate, dropGoalBlockUpdate, updateRep, agent_name):
         avg_reps = {}
 
         for member in teamMembers:
@@ -202,6 +199,30 @@ class Util():
                         "action": "pick-up",
                     })
 
+                elif "Picking up block " in msg:
+                    pattern = re.compile("{(.* ?)}")
+                    vis = re.search(pattern, msg).group(0)
+
+                    pattern2 = re.compile("\((.* ?)\)")
+                    loc = re.search(pattern2, msg).group(0)
+                    loc = loc.replace("(", "[")
+                    loc = loc.replace(")", "]")
+                    loc = json.loads(loc)
+                    vis = json.loads(vis)
+
+                    block['location'] = (loc[0], loc[1])
+                    block['visualization'] = vis
+
+                    pickUpBlockSimpleUpdate(block, member)
+
+                    if arrayWorld[block['location'][0], block['location'][1]] is None:
+                        arrayWorld[block['location'][0], block['location'][1]] = []
+                    arrayWorld[block['location'][0], block['location'][1]].append({
+                        "memberName": member,
+                        "block": block['visualization'],
+                        "action": "pick-up",
+                    })
+
                 elif "Dropped goal block " in msg:
                     pattern = re.compile("{(.* ?)}")
                     vis = re.search(pattern, msg).group(0)
@@ -251,10 +272,9 @@ class Util():
                     pattern = re.compile("{(.* ?)}")
                     rep = re.search(pattern, msg).group(0)
                     rep = json.loads(rep)
+
                     for name in rep.keys():
                         if name != agent_name:
                             avg_reps[name] = rep[name]
-        # ASSUMPTION --> every agent communicates rep every tturn for everyone
-        # for member in teamMembers:
-        #     self._trust[member]['rep'] = avg_reps[member] / len(self._teamMembers)
-        updateRep(avg_reps)
+
+                    updateRep(avg_reps)
