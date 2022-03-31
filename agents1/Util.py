@@ -116,8 +116,6 @@ class Util():
     def update_info_general(arrayWorld, receivedMessages, teamMembers,
                             foundGoalBlockUpdate, foundBlockUpdate, pickUpBlockUpdate, dropBlockUpdate, dropGoalBlockUpdate, updateRep, agent_name):
         avg_reps = {}
-        for member in teamMembers:
-            avg_reps[member] = 0
 
         for member in teamMembers:
             for msg in receivedMessages[member]:
@@ -255,7 +253,7 @@ class Util():
                     rep = json.loads(rep)
                     for name in rep.keys():
                         if name != agent_name:
-                            avg_reps[name] += rep[name]
+                            avg_reps[name] = rep[name]
         # ASSUMPTION --> every agent communicates rep every tturn for everyone
         # for member in teamMembers:
         #     self._trust[member]['rep'] = avg_reps[member] / len(self._teamMembers)
