@@ -25,17 +25,19 @@ press the start button in god mode to start the session.
 if __name__ == "__main__":
     agents = [
        # {'name':'liar1', 'botclass':LiarAgent, 'settings':{}},
-        #{'name': 'liar2', 'botclass': LiarAgent, 'settings': {}},
-        #{'name': 'liar3', 'botclass': LiarAgent, 'settings': {}},
-        #{'name':'blind', 'botclass':BlindAgent, 'settings':{}},
+        {'name': 'liar2', 'botclass': LiarAgent, 'settings': {}},
+
+
         # {'name':'lazy3', 'botclass': LazyAgent, 'settings':{}},
-        # {'name': 'lazy1', 'botclass': LazyAgent, 'settings': {}},
-        # {'name': 'lazy2', 'botclass': LazyAgent, 'settings': {}},
+        #{'name': 'lazy1', 'botclass': LazyAgent, 'settings': {}},
+        {'name': 'blind', 'botclass': BlindAgent, 'settings': {}},
+        #{'name': 'liar3', 'botclass': LiarAgent, 'settings': {}},
+        #{'name': 'lazy2', 'botclass': LazyAgent, 'settings': {}},
         # {'name': 'lazy4', 'botclass': LazyAgent, 'settings': {}},
-        # {'name': 'lazy5', 'botclass': LazyAgent, 'settings': {}},
-        {'name': 'strong1', 'botclass': StrongAgent, 'settings': {}},
-        {'name': 'strong2', 'botclass': StrongAgent, 'settings': {}},
-        {'name': 'strong3', 'botclass': StrongAgent, 'settings': {}},
+        #{'name': 'lazy5', 'botclass': LazyAgent, 'settings': {}},
+        #{'name': 'strong1', 'botclass': StrongAgent, 'settings': {}},
+        #{'name': 'strong2', 'botclass': StrongAgent, 'settings': {}},
+        #{'name': 'strong3', 'botclass': StrongAgent, 'settings': {}},
         #{'name': 'humna', 'botclass' : Human, 'settings':{}},
         ]
 
@@ -62,7 +64,7 @@ if __name__ == "__main__":
     read = open("trust_test.txt", "r")
     empty = len(read.readlines()) == 0
 
-    # Write to trust_test data from all csv's
+    # Write to trust_test.txt data from all csv's
     f = open("trust_test.txt", "a")
     if not empty:
         f.write("\n")

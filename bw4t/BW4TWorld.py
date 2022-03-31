@@ -18,7 +18,7 @@ from bw4t.BW4THumanBrain import HumanBrain
 
 DEFAULT_WORLDSETTINGS: dict={
     'deadline': 3000, # Ticks after which world terminates anyway 
-    'tick_duration': 0.1, # Set to 0 for fastest possible runs.
+    'tick_duration': 0, # Set to 0 for fastest possible runs.
     'random_seed': 1,
     'verbose': False,
     'matrx_paused':True,
