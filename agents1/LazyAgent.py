@@ -399,7 +399,8 @@ class LazyAgent(BW4TBrain):
                     self._phase = Phase.MOVING_BLOCK
 
                     # remove possible location froim dict
-                    self.blocks[str(self.current)]['locs'].remove(self.moving_to)
+                    if self.moving_to in self.blocks[str(self.current)]['locs']:
+                        self.blocks[str(self.current)]['locs'].remove(self.moving_to)
                     self.moving_to = None
 
                     return GrabObject.__name__, {'object_id': l[0]['obj_id']}
