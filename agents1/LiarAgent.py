@@ -75,13 +75,13 @@ class LiarAgent(BW4TBrain):
             self.initialize_trust()
             self.read_trust()
         self.write_beliefs()
-        # self._sendMessage(Util.reputationMessage(self._trust, self._teamMembers), agent_name)
 
         self._prepareArrayWorld(state)
         self.updateGoalBlocks(state)
 
         # Update information based on gathered information
         self._updateWorld(state)
+
         self._sendMessage(Util.reputationMessage(self._trust, self._teamMembers), agent_name)
         Util.update_info_general(self._arrayWorld, receivedMessages, self._teamMembers, self.foundGoalBlockUpdate,
                                  self.foundBlockUpdate, self.pickUpBlockUpdate, self.pickUpBlockSimpleUpdate, self.dropBlockUpdate,
@@ -99,20 +99,8 @@ class LiarAgent(BW4TBrain):
 
         if self._searched_doors_index is None:
             self._searched_doors_index = list(range(0, len(state.get_all_room_names()) - 1))
-        # Update trust beliefs for team members
-        # self._trustBlief(state, closeBlocks)
-
-        # Update arrayWorld
-        for obj in closeObjects:
-            loc = obj['location']
-            self._arrayWorld[loc[0]][loc[1]] = []
-
-        if self._goal_objects is None:
-            self._goal_objects = [goal for goal in state.values()
-                                  if 'is_goal_block' in goal and goal['is_goal_block']]
 
         while True:
-            # print(self._phase)
 
             if Phase.PLAN_PATH_TO_UNSEARCHED_DOOR == self._phase:
                 self._navigator.reset_full()
@@ -127,11 +115,7 @@ class LiarAgent(BW4TBrain):
                         return None, {}
                     else:
                         self._door = random.choice(doors)
-                #     self._phase = Phase.CHECK_GOAL_ZONE
-                #     print("a dat val")
-                #     return None, {}
                 else:
-                    print(self._searched_doors_index)
                     index = random.choice(self._searched_doors_index)
                     self._door = doors[index]
                     self._searched_doors_index.remove(index)
@@ -278,12 +262,10 @@ class LiarAgent(BW4TBrain):
                     self._phase = Phase.CHOOSE_NEXT_MOVE
 
             if Phase.CHOOSE_NEXT_MOVE == self._phase:
-                # print("aici!!!!!")
                 self._phase = Phase.PLAN_PATH_TO_UNSEARCHED_DOOR
                 # if there is an goal object that we have previously found
                 if len(self._goal_objects_found) > 0 and len(self._goal_objects) > 0:
 
-                    # print("in if")
                     for obj in self._goal_objects_found:
                         if obj['visualization']['colour'] == self._goal_objects[0]['visualization']['colour'] and \
                                 obj['visualization']['shape'] == self._goal_objects[0]['visualization']['shape']:
@@ -342,7 +324,6 @@ class LiarAgent(BW4TBrain):
                                 self._goal_objects_found.append(c)
 
                 action = self._navigator.get_move_action(self._state_tracker)
-                # print("a fct asta aici")
                 if action is not None:
                     return action, {}
                 self._phase = Phase.PLAN_PATH_TO_UNSEARCHED_DOOR
@@ -533,6 +514,7 @@ class LiarAgent(BW4TBrain):
         if len(closeBlocks) != 1:
             return "MultipleObj"
         return closeBlocks[0]
+
     def check_same_visualizations(self, vis1, vis2):
         size = 0
         shape = 0
@@ -592,15 +574,12 @@ class LiarAgent(BW4TBrain):
         location = None
         for member in self._teamMembers:
             for message in receivedMessages[member]:
-                # print("nope: ", member, ": ", str(message))
-                # print("pppp: ", str(knownLocation))
                 if str(message).startswith("Picking up ") and str(message).endswith(str(knownLocation)) and\
                         self._trust[member]['average'] >= 0.7:
                     shape = "\"shape\": " + str(visualzation['shape'])
-                    # print("l-a luat")
                     for m in reversed(receivedMessages[member]):
                         if str(m).startswith("Dropped ") and str(m).__contains__(shape):
-                            # print("l-a si lasat")
+                            
                             pattern = re.compile("{(.* ?)}")
                             vis = re.search(pattern, m).group(0)
 
@@ -612,7 +591,6 @@ class LiarAgent(BW4TBrain):
                             vis = json.loads(vis)
                             location = (loc[0], loc[1])
                             break
-                    # print("l-am gasit")
                     found = True
                     break
 
@@ -638,7 +616,10 @@ class LiarAgent(BW4TBrain):
         return
 
     def updateGoalBlocks(self, state):
-        return
+        if self._goal_objects is None:
+            self._goal_objects = [goal for goal in state.values()
+                                  if 'is_goal_block' in goal and goal['is_goal_block']]
+
 
     def pickUpBlockSimpleUpdate(self, block, member):
         return
