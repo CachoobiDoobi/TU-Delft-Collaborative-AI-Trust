@@ -142,8 +142,7 @@ class StrongAgent(BW4TBrain):
                 action = self._navigator.get_move_action(self._state_tracker)
                 if action is not None:
                     return action, {}
-
-
+                self._phase = Phase.PLAN_PATH_TO_DOOR
                 if len(self._holdingBlocks) > 0:
                     self._currentIndex += 1
                     block = self._holdingBlocks[-1]
@@ -151,7 +150,6 @@ class StrongAgent(BW4TBrain):
                         block, self._goalBlocks[self._currentIndex - 1]['location']), agent_name)
                     return DropObject.__name__, {
                         'object_id': block['obj_id']}
-
 
             if Phase.PATH_BLIND_DROP == self._phase:
                 self._navigator.reset_full()
@@ -560,7 +558,6 @@ class StrongAgent(BW4TBrain):
             return "MultipleObj"
         return closeBlocks[0]
     def check_same_visualizations(self, vis1, vis2):
-
         shape = 0
         colour = 0
         if "shape" in vis1 and "shape" in vis2:
