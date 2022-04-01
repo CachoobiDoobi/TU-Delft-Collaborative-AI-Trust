@@ -15,7 +15,7 @@ from bw4t.BW4TBrain import BW4TBrain
 from agents1.Util import Util
 
 
-class Phase(enum.Enum):
+class PhaseBlind(enum.Enum):
     PLAN_PATH_TO_CLOSED_DOOR = 1,
     FOLLOW_PATH_TO_CLOSED_DOOR = 2,
     OPEN_DOOR = 3,
@@ -34,17 +34,17 @@ class Phase(enum.Enum):
     GO_CHECK_PICKUP = 13,
 
 
-class BlindAgent(BW4TBrain):
+class ColorblindAgent(BW4TBrain):
 
     def __init__(self, settings: Dict[str, object]):
         super().__init__(settings)
-        self._phase = Phase.PLAN_PATH_TO_CLOSED_DOOR
+        self._phase = PhaseBlind.PLAN_PATH_TO_CLOSED_DOOR
         self._teamMembers = []
         self._door = None
-        self._objects = []  # All objects found
-        self._goal_blocks = []  # Universally known goal blocks
-        self._goal_blocks_locations = []  # Goal block locations as said by other agents
-        self._goal_blocks_locations_followed = []  # Goal block locations already followed (by blind)
+        self._objects = []                                  # All objects found
+        self._goal_blocks = []                              # Goal blocks
+        self._goal_blocks_locations = []                    # Goal block locations as said by other agents
+        self._goal_blocks_locations_followed = []           # Goal block locations already followed
         self._goal_blocks_location_followed_by_others = []  # Goal block locations where other agents went
         self._trustBeliefs = []
         self._current_obj = None
@@ -59,8 +59,8 @@ class BlindAgent(BW4TBrain):
         self._navigator = Navigator(agent_id=self.agent_id,
                                     action_set=self.action_set, algorithm=Navigator.A_STAR_ALGORITHM)
 
-    # Remove colour from any block visualization
     def filter_bw4t_observations(self, state):
+        # Remove colour from any block visualization
         for obj in state:
             if "is_collectable" in state[obj] and state[obj]['is_collectable']:
                 state[obj]['visualization'].pop('colour')
@@ -97,7 +97,7 @@ class BlindAgent(BW4TBrain):
                                  self.updateRep, self.agent_name)
 
         while True:
-            if Phase.PLAN_PATH_TO_CLOSED_DOOR == self._phase:
+            if PhaseBlind.PLAN_PATH_TO_CLOSED_DOOR == self._phase:
                 self._navigator.reset_full()
                 closedDoors = [door for door in state.values()
                                if 'class_inheritance' in door and 'Door' in door['class_inheritance'] and not door['is_open']]
@@ -106,11 +106,11 @@ class BlindAgent(BW4TBrain):
                 if len(closedDoors) == 0:
                     # Go check if others picked up goal blocks when they said they did
                     if len(self._goal_blocks_location_followed_by_others) > 0:
-                        self._phase = Phase.CHECK_PICKUP_BY_OTHER
+                        self._phase = PhaseBlind.CHECK_PICKUP_BY_OTHER
                         return None, {}
                     # Else, search a random room that has been searched
                     else:
-                        self._phase = Phase.SEARCH_RANDOM_ROOM
+                        self._phase = PhaseBlind.SEARCH_RANDOM_ROOM
                         return None, {}
 
                 # Randomly pick a closed door
@@ -122,22 +122,23 @@ class BlindAgent(BW4TBrain):
                 self._sendMessage(Util.moveToMessage(self._door['room_name']), agent_name)
 
                 self._navigator.add_waypoints([doorLoc])
-                self._phase = Phase.FOLLOW_PATH_TO_CLOSED_DOOR
+                self._phase = PhaseBlind.FOLLOW_PATH_TO_CLOSED_DOOR
 
-            if Phase.FOLLOW_PATH_TO_CLOSED_DOOR == self._phase:
+            if PhaseBlind.FOLLOW_PATH_TO_CLOSED_DOOR == self._phase:
                 self._state_tracker.update(state)
                 # Follow path to door
                 action = self._navigator.get_move_action(self._state_tracker)
                 if action is not None:
                     return action, {}
-                self._phase = Phase.OPEN_DOOR
+                self._phase = PhaseBlind.OPEN_DOOR
 
-            if Phase.OPEN_DOOR == self._phase:
+            if PhaseBlind.OPEN_DOOR == self._phase:
                 self._navigator.reset_full()
 
                 contents = state.get_room_objects(self._door['room_name'])
                 waypoints = []
 
+                # Add waypoint locations in room
                 for c in contents:
                     if 'class_inheritance' in c and 'AreaTile' in c['class_inheritance']:
                         x, y = c["location"][0], c["location"][1]
@@ -152,22 +153,23 @@ class BlindAgent(BW4TBrain):
                     # Send opening door message
                     self._sendMessage(Util.openingDoorMessage(self._door['room_name']), agent_name)
                     # Go search room
-                    self._phase = Phase.SEARCH_ROOM
+                    self._phase = PhaseBlind.SEARCH_ROOM
                     # Send searching room message
                     self._sendMessage(Util.searchingThroughMessage(self._door['room_name']), agent_name)
                     return OpenDoorAction.__name__, {'object_id': self._door['obj_id']}
                 else:
                     # If another agent has opened the door in the meantime, go search room & send message
                     self._sendMessage(Util.searchingThroughMessage(self._door['room_name']), agent_name)
-                    self._phase = Phase.SEARCH_ROOM
+                    self._phase = PhaseBlind.SEARCH_ROOM
 
-            if Phase.SEARCH_ROOM == self._phase:
+            if PhaseBlind.SEARCH_ROOM == self._phase:
                 self._state_tracker.update(state)
 
                 contents = state.get_room_objects(self._door['room_name'])
 
                 for c in contents:
                     if "Block" in c['name']:
+                        # For each new object found, remember & send "found block" message
                         if c not in self._objects:
                             self._objects.append(c)
                             self._sendMessage(Util.foundBlockMessage(c, True), agent_name)
@@ -177,10 +179,10 @@ class BlindAgent(BW4TBrain):
                     return action, {}
 
                 # After searching room, check if there is a goal block to pick up
-                self._phase = Phase.CHECK_GOAL_TO_FOLLOW
+                self._phase = PhaseBlind.CHECK_GOAL_TO_FOLLOW
 
             # Check if another agent has found a goal block
-            if Phase.CHECK_GOAL_TO_FOLLOW == self._phase:
+            if PhaseBlind.CHECK_GOAL_TO_FOLLOW == self._phase:
                 follow = None
                 for loc in self._goal_blocks_locations:
                     # There is a location at which another agent found a goal block
@@ -191,7 +193,7 @@ class BlindAgent(BW4TBrain):
                         break
 
                 if follow is not None:
-                    self._phase = Phase.FOLLOW_PATH_TO_GOAL_BLOCK
+                    self._phase = PhaseBlind.FOLLOW_PATH_TO_GOAL_BLOCK
                     self._navigator.reset_full()
                     self._navigator.add_waypoints([follow])
                     action = self._navigator.get_move_action(self._state_tracker)
@@ -200,9 +202,9 @@ class BlindAgent(BW4TBrain):
                 # If there is no goal block, plan path to closed door
                 else:
                     self._navigator.reset_full()
-                    self._phase = Phase.PLAN_PATH_TO_CLOSED_DOOR
+                    self._phase = PhaseBlind.PLAN_PATH_TO_CLOSED_DOOR
 
-            if Phase.FOLLOW_PATH_TO_GOAL_BLOCK == self._phase:
+            if PhaseBlind.FOLLOW_PATH_TO_GOAL_BLOCK == self._phase:
                 self._state_tracker.update(state)
                 action = self._navigator.get_move_action(self._state_tracker)
 
@@ -220,20 +222,20 @@ class BlindAgent(BW4TBrain):
                     self._current_obj = l[0]
                     self._sendMessage(Util.pickingUpBlockSimpleMessage(self._current_obj, True), agent_name)
 
-                    self._phase = Phase.GRAB
+                    self._phase = PhaseBlind.GRAB
                     return GrabObject.__name__, {'object_id': self._current_obj['obj_id']}
                 else:
-                    self._phase = Phase.CHECK_GOAL_TO_FOLLOW
+                    self._phase = PhaseBlind.CHECK_GOAL_TO_FOLLOW
 
-            if Phase.CHECK_PICKUP_BY_OTHER == self._phase:
+            if PhaseBlind.CHECK_PICKUP_BY_OTHER == self._phase:
                 location_to_check = self._goal_blocks_location_followed_by_others[0]
-                self._phase = Phase.GO_CHECK_PICKUP
+                self._phase = PhaseBlind.GO_CHECK_PICKUP
                 self._navigator.reset_full()
                 self._navigator.add_waypoints([location_to_check['location']])
                 action = self._navigator.get_move_action(self._state_tracker)
                 return action, {}
 
-            if Phase.GO_CHECK_PICKUP == self._phase:
+            if PhaseBlind.GO_CHECK_PICKUP == self._phase:
                 self._state_tracker.update(state)
                 action = self._navigator.get_move_action(self._state_tracker)
 
@@ -255,24 +257,24 @@ class BlindAgent(BW4TBrain):
                     self._current_obj = l[0]
                     self._sendMessage(Util.pickingUpBlockSimpleMessage(self._current_obj, True), agent_name)
 
-                    self._phase = Phase.GRAB
+                    self._phase = PhaseBlind.GRAB
                     return GrabObject.__name__, {'object_id': self._current_obj['obj_id']}
                 else:
-                    self._phase = Phase.CHECK_GOAL_TO_FOLLOW
+                    self._phase = PhaseBlind.CHECK_GOAL_TO_FOLLOW
 
-            if Phase.GRAB == self._phase:
+            if PhaseBlind.GRAB == self._phase:
                 self._navigator.reset_full()
 
-                # Blind drops object between drop zone and door of closest room
+                # Custom drop location = above drop zone
                 if self._drop_location_blind is None:
                     loc = self._goal_blocks[2]['location']
                     self._drop_location_blind = (loc[0], loc[1] - 1)
 
                 self._navigator.add_waypoints([self._drop_location_blind])
 
-                self._phase = Phase.MOVING_BLOCK
+                self._phase = PhaseBlind.MOVING_BLOCK
 
-            if Phase.MOVING_BLOCK == self._phase:
+            if PhaseBlind.MOVING_BLOCK == self._phase:
                 self._state_tracker.update(state)
                 action = self._navigator.get_move_action(self._state_tracker)
 
@@ -284,9 +286,9 @@ class BlindAgent(BW4TBrain):
                     return DropObject.__name__, {'object_id': self._current_obj['obj_id']}
 
                 # After dropping block, check if there is another goal to follow
-                self._phase = Phase.CHECK_GOAL_TO_FOLLOW
+                self._phase = PhaseBlind.CHECK_GOAL_TO_FOLLOW
 
-            if Phase.SEARCH_RANDOM_ROOM == self._phase:
+            if PhaseBlind.SEARCH_RANDOM_ROOM == self._phase:
                 doors = [door for door in state.values()
                          if 'class_inheritance' in door and 'Door' in door['class_inheritance']]
                 self._door = random.choice(doors)
@@ -296,8 +298,8 @@ class BlindAgent(BW4TBrain):
                 # Send message of current action
                 self._sendMessage(Util.moveToMessage(self._door['room_name']), agent_name)
                 self._navigator.add_waypoints([doorLoc])
-                # Follow path to random (opened) door, but can reuse phase
-                self._phase = Phase.FOLLOW_PATH_TO_CLOSED_DOOR
+                # Follow path to random (opened or closed) door, but can reuse phase
+                self._phase = PhaseBlind.FOLLOW_PATH_TO_CLOSED_DOOR
 
     ####### MESSAGES #######
     def _sendMessage(self, mssg, sender):
@@ -353,7 +355,6 @@ class BlindAgent(BW4TBrain):
         # Sort by trust (follow first locations from most trusted team members)
         self._goal_blocks_locations.sort(key=lambda x: x['trustLevel'], reverse=True)
 
-    # When receiving a "Picking up goal block" message
     def pickUpBlockUpdate(self, block, member):
         self.removeLocationFollowedByOther(block)
 
@@ -387,17 +388,12 @@ class BlindAgent(BW4TBrain):
     def dropGoalBlockUpdate(self, block, member):
         return
 
-    def updateRep(self, avg_reps):
-        nr_team_mates = len(self._teamMembers)
-        for member in avg_reps.keys():
-            self._trust[member]['rep'] = (avg_reps[member] + (
-                        self._trust[member]['rep'] * (nr_team_mates - 1))) / nr_team_mates
-
     def updateGoalBlocks(self, state):
         if len(self._goal_blocks) == 0:
             self._goal_blocks = [goal for goal in state.values()
                         if 'is_goal_block' in goal and goal['is_goal_block']]
 
+    #### ArrayWorld #####
     def _updateWorld(self, state):
         agentLocation = state[self.agent_id]['location']
         closeObjects = state.get_objects_in_area((agentLocation[0] - 1, agentLocation[1] - 1),
@@ -427,8 +423,7 @@ class BlindAgent(BW4TBrain):
                 for y in range(worldShape[1]):
                     self._arrayWorld[x, y] = []
 
-    ###################### TRUST ################################
-
+    ######### TRUST #############
     def read_trust(self):
         # agentname_trust.csv
         file_name = self.agent_id + '_trust.csv'
@@ -477,9 +472,8 @@ class BlindAgent(BW4TBrain):
             else:  # block is there so interaction must end with found or drop-off to be valid!
                 self.checkFoundInteraction(messages, realBlock)
 
-    def checkPickUpInteraction(self,
-                               interactions):  # assume interactions are for the same type of block(same visualization)
-
+    def checkPickUpInteraction(self, interactions):
+        # Assume interactions are for the same type of block(same visualization)
         actionFreq = {
             "drop-off": 0,
             "found": 0,
@@ -530,7 +524,6 @@ class BlindAgent(BW4TBrain):
             self.increaseDecreaseTrust(members, False)  # decrease trust
 
     def increaseDecreaseTrust(self, members, isIncrease, block=None):
-
         val = -0.1
         if isIncrease:
             val = 0.1
@@ -594,11 +587,15 @@ class BlindAgent(BW4TBrain):
     def check_same_visualizations(self, vis1, vis2):
         shape = 0
         colour = 0
-
         if "shape" in vis1 and "shape" in vis2:
             shape = 0.05 if vis1['shape'] == vis2['shape'] else -0.05
-
         if "colour" in vis1 and "colour" in vis2:
             colour = 0.05 if vis1['colour'] == vis2['colour'] else -0.05
-
         return shape + colour
+
+    # Update reputation values
+    def updateRep(self, avg_reps):
+        nr_team_mates = len(self._teamMembers)
+        for member in avg_reps.keys():
+            self._trust[member]['rep'] = (avg_reps[member] + (
+                        self._trust[member]['rep'] * (nr_team_mates - 1))) / nr_team_mates

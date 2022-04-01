@@ -41,7 +41,7 @@ class Util():
         get_with_color = 2 if is_color_blind else 3
         item_info = dict(list(data['visualization'].items())[:get_with_color])
         return "Dropped block " + json.dumps(item_info) \
-               + " at location (" + ', '.join([str(loc) for loc in location]) + ")"
+               + " at drop location (" + ', '.join([str(loc) for loc in location]) + ")"
 
     @staticmethod
     def pickingUpBlockMessage(data):
@@ -53,7 +53,7 @@ class Util():
     def droppingBlockMessage(data, location):
         item_info = dict(list(data['visualization'].items())[:3])
         return "Dropped goal block " + json.dumps(item_info) \
-               + " at location (" + ', '.join([str(loc) for loc in location]) + ")"
+               + " at drop location (" + ', '.join([str(loc) for loc in location]) + ")"
 
     @staticmethod
     def reputationMessage(trust, team_members):
