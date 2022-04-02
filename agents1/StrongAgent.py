@@ -67,7 +67,6 @@ class StrongAgent(BW4TBrain):
                 self._teamMembers.append(member)
                 # Process messages from team members
         receivedMessages = self._processMessages(self._teamMembers)
-        print(receivedMessages)
         # Update trust beliefs for team members
         # -----------------TRUST-----------------
         if self._trust == {}:
@@ -85,8 +84,7 @@ class StrongAgent(BW4TBrain):
         self._sendMessage(Util.reputationMessage(self._trust, self._teamMembers), agent_name)
         Util.update_info_general(self._arrayWorld, receivedMessages, self._teamMembers,
                                  self.foundGoalBlockUpdate, self.foundBlockUpdate,
-                                 self.pickUpBlockUpdate, self.dropBlockUpdate, self.dropGoalBlockUpdate, self.updateRep, agent_name)
-
+                                 self.pickUpBlockUpdate, self.pickUpBlockSimpleUpdate, self.dropBlockUpdate, self.dropGoalBlockUpdate, self.updateRep, agent_name)
 
         self.setBlindData()
         self._ticks += 1
@@ -594,6 +592,8 @@ class StrongAgent(BW4TBrain):
         goalBlockIndex = self.getGoalBlockIndex(block)
         if goalBlockIndex is None:
             return
+        if self._foundGoalBlocks[goalBlockIndex] is None:
+            return
         if tuple(block['location']) == self._foundGoalBlocks[goalBlockIndex]['location']:
             self._foundGoalBlocks[goalBlockIndex] = None
 
@@ -613,10 +613,10 @@ class StrongAgent(BW4TBrain):
         if self._goalBlocks[goalBlockIndex]['location'] == tuple(block['location']):
             if self._currentIndex == goalBlockIndex:
                 self._currentIndex += 1
-                # TODO if hold current goal block drop it!
         else:
             self._foundGoalBlocks[goalBlockIndex] = block
-
+    def pickUpBlockSimpleUpdate(self, block, member):
+        return
     def updateRep(self, avg_reps):
         nr_team_mates = len(self._teamMembers)
         for member in avg_reps.keys():
