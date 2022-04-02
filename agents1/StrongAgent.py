@@ -25,15 +25,15 @@ class Phase(enum.Enum):
     PLAN_PATH_TO_DOOR = 1,
     FOLLOW_PATH_TO_CLOSED_DOOR = 2,
     OPEN_DOOR = 3,
-    CHECK_BLIND_DROP = 10,
-    PATH_BLIND_DROP = 11
+    CHECK_ABOVE_GOAL_DROP = 10,
+    PATH_ABOVE_GOAL_DROP = 11
 
 
 class StrongAgent(BW4TBrain):
 
     def __init__(self, settings: Dict[str, object]):
         super().__init__(settings)
-        self._checkBlind = (False, False)
+        self._check_above_goal = (False, False)
         self._currentIndex = 0
         self._foundGoalBlocks = None
         self._currentRoomObjects = None
@@ -48,7 +48,7 @@ class StrongAgent(BW4TBrain):
         self._doorIndex = 0
         self._blockToPick = None
         self.receivedMessagesIndex = 0
-        self._drop_location_blind = None
+        self._drop_location_above_goal = None
         self._ticks = 0
     def initialize(self):
         super().initialize()
@@ -75,31 +75,43 @@ class StrongAgent(BW4TBrain):
         self.write_beliefs()
 
         # ------------------------------------
+        # initialise the game map in an array for trust checking
         self._prepareArrayWorld(state)
+        #intialise the goal blocks and the found blocks array
         self.updateGoalBlocks(state)
-
+        #always update the holding blocks each turn
         self._holdingBlocks = state.get_self()['is_carrying']
+        #Prepare the order of rooms to seach in
         self._prepareDoors(state)
+        #Update the world array based on recieved messages, also change the trust belief
         self._updateWorld(state)
+        #process messages from other players
         self._sendMessage(Util.reputationMessage(self._trust, self._teamMembers), agent_name)
         Util.update_info_general(self._arrayWorld, receivedMessages, self._teamMembers,
                                  self.foundGoalBlockUpdate, self.foundBlockUpdate,
                                  self.pickUpBlockUpdate, self.pickUpBlockSimpleUpdate, self.dropBlockUpdate, self.dropGoalBlockUpdate, self.updateRep, agent_name)
-
-        self.setBlindData()
+        #set the flags for checking above the goal
+        self.setDataAboveGoal()
+        # keep track of ticks
         self._ticks += 1
         while True:
+            #If a block I hold is already dropped at the goal I will drop it
             droppableBlock = self.dropOldGoalBlock()
             if droppableBlock is not None:
                 self._sendMessage(Util.droppingBlockMessage(
                     droppableBlock, self._goalBlocks[self._currentIndex - 1]['location']), agent_name)
                 return DropObject.__name__, {
                     'object_id': droppableBlock['obj_id']}
+            ##########################################
+            #Check if I can find the next block to drop directly
             self.checkNextDropPossibility()
+            #Check if a block I hold can be dropped at the goal
             if self.checkCurrentBlockDrop():
                 self._phase = Phase.FOLLOW_PATH_TO_GOAL
+            #Choose which room to go to. If all rooms have been visited choose a random one
             if Phase.PLAN_PATH_TO_DOOR == self._phase:
                 self.PLAN_PATH_TO_DOOR_logic(agent_name)
+            #Go to the room
             if Phase.FOLLOW_PATH_TO_CLOSED_DOOR == self._phase:
                 self._state_tracker.update(state)
                 # Follow path to door
@@ -114,8 +126,10 @@ class StrongAgent(BW4TBrain):
                 # Open door
                 self._sendMessage(Util.openingDoorMessage(self._door['room_name']), agent_name)
                 return OpenDoorAction.__name__, {'object_id': self._door['obj_id']}
+            #Choose the area tiles in the room so you can walk in the whole room area
             if Phase.PREPARE_ROOM == self._phase:
                 self.PREPARE_ROOM_logic(state, agent_name)
+            #Walk on each area tile in the room and check the blocks inside
             if Phase.SEARCH_BLOCK == self._phase:
                 self._state_tracker.update(state)
                 contents = state.get_room_objects(self._door['room_name'])
@@ -127,14 +141,18 @@ class StrongAgent(BW4TBrain):
                 if action is not None:
                     return action, {}
                 self._phase = Phase.FOUND_BLOCK
+            # if goal blocks are found go to pickup
             if Phase.FOUND_BLOCK == self._phase:
                 self.FOUND_BLOCK_logic(agent_name, self._currentRoomObjects)
+            #picks up the block
             if Phase.PICKUP_BLOCK == self._phase:
                 return self.pickupLogic(agent_name, self._blockToPick, state)
+            # go to goal location to drop blocks
             if Phase.FOLLOW_PATH_TO_GOAL == self._phase:
                 self._navigator.reset_full()
                 self._navigator.add_waypoints([self._goalBlocks[self._currentIndex]['location']])
                 self._phase = Phase.DROP_BLOCK
+            # drop the last block you hold and move to search the next one
             if Phase.DROP_BLOCK == self._phase:
                 self._state_tracker.update(state)
                 action = self._navigator.get_move_action(self._state_tracker)
@@ -148,18 +166,18 @@ class StrongAgent(BW4TBrain):
                         block, self._goalBlocks[self._currentIndex - 1]['location']), agent_name)
                     return DropObject.__name__, {
                         'object_id': block['obj_id']}
-
-            if Phase.PATH_BLIND_DROP == self._phase:
+            #go search for blocks above the goal
+            if Phase.PATH_ABOVE_GOAL_DROP == self._phase:
                 self._navigator.reset_full()
-                self._navigator.add_waypoints([self._drop_location_blind])
+                self._navigator.add_waypoints([self._drop_location_above_goal])
                 self._state_tracker.update(state)
                 action = self._navigator.get_move_action(self._state_tracker)
                 if action is not None:
                     return action, {}
-                self._phase = Phase.CHECK_BLIND_DROP
-
-            if Phase.CHECK_BLIND_DROP == self._phase:
-                self._checkBlind = (self._checkBlind[0], False)
+                self._phase = Phase.CHECK_ABOVE_GOAL_DROP
+            #If there are goal blocks you need pick them up
+            if Phase.CHECK_ABOVE_GOAL_DROP == self._phase:
+                self._check_above_goal = (self._check_above_goal[0], False)
                 agentLocation = state[self.agent_id]['location']
                 closeObjects = state.get_objects_in_area((agentLocation[0], agentLocation[1]),
                                                          bottom_right=(agentLocation[0] + 1, agentLocation[1] + 1))
@@ -186,6 +204,7 @@ class StrongAgent(BW4TBrain):
         for c in currentRoomObjects:
             if self.isGoalBlock(c):
                 self._sendMessage(Util.foundGoalBlockMessage(c), agent_name)
+                # manageBlock will decide if the goal block should be picked or not
                 self.manageBlock(c)
             else:
                 self._sendMessage(Util.foundBlockMessage(c), agent_name)
@@ -210,15 +229,15 @@ class StrongAgent(BW4TBrain):
 
     def PLAN_PATH_TO_DOOR_logic(self, agent_name):
         self._navigator.reset_full()
-        if self._checkBlind[1]:
-            self._phase = Phase.PATH_BLIND_DROP
+        if self._check_above_goal[1]:
+            self._phase = Phase.PATH_ABOVE_GOAL_DROP
             return None, {}
 
         if self._doorIndex >= len(self._doors):
             # Randomly pick a closed door
             self._door = random.choice(self._doors)
-            if self._checkBlind[0]:
-                self._phase = Phase.PATH_BLIND_DROP
+            if self._check_above_goal[0]:
+                self._phase = Phase.PATH_ABOVE_GOAL_DROP
                 return None, {}
         self._door = self._doors[self._doorIndex]
         self._doorIndex += 1
@@ -238,12 +257,15 @@ class StrongAgent(BW4TBrain):
             return action, {}
         self._phase = Phase.PLAN_PATH_TO_DOOR
         goalBlockIndex = self.getGoalBlockIndex(currentBlock)
+        #if it is not a goal block go back
         if goalBlockIndex is None:
             return None, {}
         block = self.getGoalBlockName(state, currentBlock)
+        #if the block is not at the location go back
         if block is None:
             self._foundGoalBlocks[goalBlockIndex] = None
             return None, {}
+        #otherwise pick it up
         self._sendMessage(Util.pickingUpBlockMessage(block), agent_name)
         return GrabObject.__name__, {'object_id': block['obj_id']}
 
@@ -303,14 +325,14 @@ class StrongAgent(BW4TBrain):
             self._goalBlocks = [goal for goal in state.values()
                                 if 'is_goal_block' in goal and goal['is_goal_block']]
             self._foundGoalBlocks = np.empty(len(self._goalBlocks), dtype=dict)
-    def setBlindData(self):
-        if self._drop_location_blind is None:
+    def setDataAboveGoal(self):
+        if self._drop_location_above_goal is None:
             loc = self._goalBlocks[-1]['location']
-            self._drop_location_blind = (loc[0], loc[1] - 1)
+            self._drop_location_above_goal = (loc[0], loc[1] - 1)
         if self._doorIndex % 2:
-            self._checkBlind = (True, self._checkBlind[1])
+            self._check_above_goal = (True, self._check_above_goal[1])
         else:
-            self._checkBlind = (False, self._checkBlind[1])
+            self._check_above_goal = (False, self._check_above_goal[1])
     def isGoalBlock(self, block):
         getBlockInfo = lambda x: dict(list(x['visualization'].items())[:3])
         blockInfo = getBlockInfo(block)
@@ -322,8 +344,10 @@ class StrongAgent(BW4TBrain):
     def manageBlock(self, block):
         goalBlockIndex = self.getGoalBlockIndex(block)
         self._foundGoalBlocks[goalBlockIndex] = block
+        #if I hold the block I do not need to pick it
         if goalBlockIndex in [self.getGoalBlockIndex(x) for x in self._holdingBlocks]:
             return
+        # if it is the current block or I have space to pick a later goal block I will pick it
         if goalBlockIndex == self._currentIndex or (
                 len(self._holdingBlocks) == 0 and goalBlockIndex > self._currentIndex):
             self._phase = Phase.PICKUP_BLOCK
@@ -569,6 +593,7 @@ class StrongAgent(BW4TBrain):
     ########################################################################
     ################# Update Info From Team ################################
     def badTrustCondition(self, member):
+        # if this condition holds, the actions shoud not be taken into account, trust is too low
         if (self._trust[member]['average'] < 0.7 or self._trust[member]['verified'] < 3) \
                 and self._trust[member]['rep'] < 0.7:
             return True
@@ -580,6 +605,7 @@ class StrongAgent(BW4TBrain):
         goalBlockIndex = self.getGoalBlockIndex(block)
         if goalBlockIndex is None:
             return
+        # if a goal block was found, remember it
         if self._foundGoalBlocks[goalBlockIndex] is None:
             self._foundGoalBlocks[goalBlockIndex] = block
 
@@ -594,14 +620,16 @@ class StrongAgent(BW4TBrain):
             return
         if self._foundGoalBlocks[goalBlockIndex] is None:
             return
+        #If a goal block you knew about was picked up, forget about it
         if tuple(block['location']) == self._foundGoalBlocks[goalBlockIndex]['location']:
             self._foundGoalBlocks[goalBlockIndex] = None
 
     def dropBlockUpdate(self, block, member):
         if self.badTrustCondition(member):
             return
-        if tuple(block['location']) == self._drop_location_blind:
-            self._checkBlind = (self._checkBlind[0], True)
+        #if the block is dropped above goal search for it
+        if tuple(block['location']) == self._drop_location_above_goal:
+            self._check_above_goal = (self._check_above_goal[0], True)
         return
 
     def dropGoalBlockUpdate(self, block, member):
@@ -610,6 +638,7 @@ class StrongAgent(BW4TBrain):
         goalBlockIndex = self.getGoalBlockIndex(block)
         if goalBlockIndex is None:
             return
+        #if the block is dropped at goal search for the next blocks
         if self._goalBlocks[goalBlockIndex]['location'] == tuple(block['location']):
             if self._currentIndex == goalBlockIndex:
                 self._currentIndex += 1
