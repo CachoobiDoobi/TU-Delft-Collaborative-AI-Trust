@@ -45,7 +45,7 @@ class ColorblindAgent(BW4TBrain):
         self._goal_blocks = []                              # Goal blocks
         self._goal_blocks_locations = []                    # Goal block locations as said by other agents
         self._goal_blocks_locations_followed = []           # Goal block locations already followed
-        self._goal_blocks_location_followed_by_others = []  # Goal block locations where other agents went
+        self._goal_blocks_locations_followed_by_others = []  # Goal block locations where other agents went
         self._trustBeliefs = []
         self._current_obj = None
         self._drop_location_blind = None
@@ -105,7 +105,7 @@ class ColorblindAgent(BW4TBrain):
                 # If no more closed doors
                 if len(closedDoors) == 0:
                     # Go check if others picked up goal blocks when they said they did
-                    if len(self._goal_blocks_location_followed_by_others) > 0:
+                    if len(self._goal_blocks_locations_followed_by_others) > 0:
                         self._phase = PhaseBlind.CHECK_PICKUP_BY_OTHER
                         return None, {}
                     # Else, search a random room that has been searched
@@ -228,7 +228,7 @@ class ColorblindAgent(BW4TBrain):
                     self._phase = PhaseBlind.CHECK_GOAL_TO_FOLLOW
 
             if PhaseBlind.CHECK_PICKUP_BY_OTHER == self._phase:
-                location_to_check = self._goal_blocks_location_followed_by_others[0]
+                location_to_check = self._goal_blocks_locations_followed_by_others[0]
                 self._phase = PhaseBlind.GO_CHECK_PICKUP
                 self._navigator.reset_full()
                 self._navigator.add_waypoints([location_to_check['location']])
@@ -242,9 +242,9 @@ class ColorblindAgent(BW4TBrain):
                 if action is not None:
                     return action, {}
 
-                # Get followed location
-                location_to_check_followed = self._goal_blocks_location_followed_by_others[0]
-                self._goal_blocks_location_followed_by_others.remove(location_to_check_followed)
+                # Get followed location & remove from array
+                location_to_check_followed = self._goal_blocks_locations_followed_by_others[0]
+                self._goal_blocks_locations_followed_by_others.remove(location_to_check_followed)
 
                 # Get objects in area of location
                 objs_in_area = state.get_objects_in_area(location_to_check_followed['location'], 1, 1)
@@ -271,7 +271,6 @@ class ColorblindAgent(BW4TBrain):
                     self._drop_location_blind = (loc[0], loc[1] - 1)
 
                 self._navigator.add_waypoints([self._drop_location_blind])
-
                 self._phase = PhaseBlind.MOVING_BLOCK
 
             if PhaseBlind.MOVING_BLOCK == self._phase:
@@ -327,7 +326,6 @@ class ColorblindAgent(BW4TBrain):
 
     ###### UPDATE METHODS ########
     def foundGoalBlockUpdate(self, block, member):
-
         # Update trust for objects already in goal_blocks_locations
         for obj in self._goal_blocks_locations:
             member = obj['member']
@@ -356,28 +354,30 @@ class ColorblindAgent(BW4TBrain):
         self._goal_blocks_locations.sort(key=lambda x: x['trustLevel'], reverse=True)
 
     def pickUpBlockUpdate(self, block, member):
-        self.removeLocationFollowedByOther(block)
+        self.removeLocationsFollowedByOther(block)
 
     def pickUpBlockSimpleUpdate(self, block, member):
-        self.removeLocationFollowedByOther(block)
+        self.removeLocationsFollowedByOther(block)
 
-    def removeLocationFollowedByOther(self, block):
+    def removeLocationsFollowedByOther(self, block):
+        # Remove locations followed by others from self.goal_blocks_locations
+        # & add to self.goal_blocks_locations_followed_by_others
         location_goal = block['location']
         for loc in self._goal_blocks_locations:
             if loc['location'] == location_goal:
                 self._goal_blocks_locations.remove(loc)
-                if loc not in self._goal_blocks_location_followed_by_others:
-                    self._goal_blocks_location_followed_by_others.append(loc)
+                if loc not in self._goal_blocks_locations_followed_by_others:
+                    self._goal_blocks_locations_followed_by_others.append(loc)
 
-        # Update trust for all objs in goal_blocks_location_followed_by_others
-        for obj in self._goal_blocks_location_followed_by_others:
+        # Update trust values for all objects
+        for obj in self._goal_blocks_locations_followed_by_others:
             member = obj['member']
             trust = self._trust[member]['pick-up'] if self._trust[member]['verified'] > 2 else self._trust[member]['rep']
             obj['trustLevel'] = trust
 
         # Sort locations followed ascending on trust level
         # These locations are going to be checked, so go ascending on trust level (first check least trusted agent)
-        self._goal_blocks_location_followed_by_others.sort(key=lambda x: x['trustLevel'])
+        self._goal_blocks_locations_followed_by_others.sort(key=lambda x: x['trustLevel'])
 
     def foundBlockUpdate(self, block, member):
         return
@@ -395,19 +395,19 @@ class ColorblindAgent(BW4TBrain):
 
     #### ArrayWorld #####
     def _updateWorld(self, state):
-        agentLocation = state[self.agent_id]['location']
-        closeObjects = state.get_objects_in_area((agentLocation[0] - 1, agentLocation[1] - 1),
-                                                 bottom_right=(agentLocation[0] + 1, agentLocation[1] + 1))
+        agent_location = state[self.agent_id]['location']
+        closeObjects = state.get_objects_in_area((agent_location[0] - 1, agent_location[1] - 1),
+                                                 bottom_right=(agent_location[0] + 1, agent_location[1] + 1))
         # Filter out only blocks
-        closeBlocks = None
+        close_blocks = None
         if closeObjects is not None:
-            closeBlocks = [obj for obj in closeObjects
+            close_blocks = [obj for obj in closeObjects
                            if 'CollectableBlock' in obj['class_inheritance']]
 
         # Update trust beliefs for team members
-        self._trustBelief(state, closeBlocks)
+        self._trustBelief(state, close_blocks)
 
-        # add average trust
+        # Add average trust value
         for member in self._teamMembers:
             avg = 0
             for key in self._trust[member].keys():
@@ -416,11 +416,13 @@ class ColorblindAgent(BW4TBrain):
             self._trust[member]['average'] = avg
 
     def _prepareArrayWorld(self, state):
-        worldShape = state['World']['grid_shape']
+        # Get world shape
+        world_shape = state['World']['grid_shape']
+        # Initialize empty arrayWorld same shape as world
         if self._arrayWorld is None:
-            self._arrayWorld = np.empty(worldShape, dtype=list)
-            for x in range(worldShape[0]):
-                for y in range(worldShape[1]):
+            self._arrayWorld = np.empty(world_shape, dtype=list)
+            for x in range(world_shape[0]):
+                for y in range(world_shape[1]):
                     self._arrayWorld[x, y] = []
 
     ######### TRUST #############
@@ -432,11 +434,12 @@ class ColorblindAgent(BW4TBrain):
                 reader = csv.reader(file, delimiter=',')
                 for row in reader:
                     if row:
-                        self._trust[row[0]] = {"pick-up": float(row[1]), "drop-off": float(row[2]),
+                        self._trust[row[0]] = {"pick-up": float(row[1]),
+                                               "drop-off": float(row[2]),
                                                "found": float(row[3]),
                                                "average": float(row[4]),
-
-                                               "rep": float(row[5]), "verified": float(row[6])}
+                                               "rep": float(row[5]),
+                                               "verified": float(row[6])}
         else:
             f = open(file_name, 'x')
             f.close()
@@ -451,7 +454,6 @@ class ColorblindAgent(BW4TBrain):
         file_name = self.agent_id + '_trust.csv'
         with open(file_name, 'w') as file:
             writer = csv.DictWriter(file, ["name", "pick-up", "drop-off", "found", "average", "rep", "verified"])
-            # writer.writeheader()
             names = self._trust.keys()
             for name in names:
                 row = self._trust[name]
@@ -471,6 +473,18 @@ class ColorblindAgent(BW4TBrain):
                 self.checkPickUpInteraction(messages)
             else:  # block is there so interaction must end with found or drop-off to be valid!
                 self.checkFoundInteraction(messages, realBlock)
+
+    # Get object(s) at a given location
+    def getObjectAtLocation(self, close_objects, location):
+        closeBlocks = None
+        if close_objects is not None:
+            closeBlocks = [obj for obj in close_objects
+                           if location == obj['location']]
+        if len(closeBlocks) == 0:
+            return None
+        if len(closeBlocks) != 1:
+            return "MultipleObj"
+        return closeBlocks[0]
 
     def checkPickUpInteraction(self, interactions):
         # Assume interactions are for the same type of block(same visualization)
@@ -523,16 +537,6 @@ class ColorblindAgent(BW4TBrain):
         else:
             self.increaseDecreaseTrust(members, False)  # decrease trust
 
-    def increaseDecreaseTrust(self, members, isIncrease, block=None):
-        val = -0.1
-        if isIncrease:
-            val = 0.1
-        for member in members:
-            if block is not None:
-                val = self.check_same_visualizations(block['visualization'], member[2])
-            self._trust[member[0]][member[1]] = min(max(round(self._trust[member[0]][member[1]] + val, 3), 0), 1)
-            self._trust[member[0]]['verified'] += 1
-
     def checkFoundInteraction(self, interactions, realBlock):
         actionFreq = {
             "drop-off": 0,
@@ -546,7 +550,6 @@ class ColorblindAgent(BW4TBrain):
             inter = interactions[i]
             action = inter['action']
             members.append((inter['memberName'], action, inter['block']))
-            # inter['block']
             actionFreq[action] += 1
             if i == len(interactions) - 1:
                 if action == 'pick-up':
@@ -573,17 +576,17 @@ class ColorblindAgent(BW4TBrain):
         else:
             self.increaseDecreaseTrust(members, False)  # decrease trust
 
-    def getObjectAtLocation(self, close_objects, location):
-        closeBlocks = None
-        if close_objects is not None:
-            closeBlocks = [obj for obj in close_objects
-                           if location == obj['location']]
-        if len(closeBlocks) == 0:
-            return None
-        if len(closeBlocks) != 1:
-            return "MultipleObj"
-        return closeBlocks[0]
+    def increaseDecreaseTrust(self, members, isIncrease, block=None):
+        val = -0.1
+        if isIncrease:
+            val = 0.1
+        for member in members:
+            if block is not None:
+                val = self.check_same_visualizations(block['visualization'], member[2])
+            self._trust[member[0]][member[1]] = min(max(round(self._trust[member[0]][member[1]] + val, 3), 0), 1)
+            self._trust[member[0]]['verified'] += 1
 
+    # Check if 2 block visualizations have the same values for shape and colour
     def check_same_visualizations(self, vis1, vis2):
         shape = 0
         colour = 0
