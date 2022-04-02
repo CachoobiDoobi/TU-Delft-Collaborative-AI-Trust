@@ -273,7 +273,7 @@ class StrongAgent(BW4TBrain):
     ####################### Block Logic ############################################
     def dropOldGoalBlock(self):
         for block in self._holdingBlocks:
-            if self.getGoalBlockIndex(block) < self._currentIndex:
+            if self.getOldGoalBlockIndex(block) < self._currentIndex:
                 return block
         return None
 
@@ -315,6 +315,17 @@ class StrongAgent(BW4TBrain):
         getBlockInfo = lambda x: dict(list(x['visualization'].items())[:3])
         blockInfo = getBlockInfo(block)
         reducedGoalBlocks = [getBlockInfo(x) for x in self._goalBlocks]
+        reducedGoalBlocks = reducedGoalBlocks[self._currentIndex:]
+        try:
+            return reducedGoalBlocks.index(blockInfo) + self._currentIndex
+        except ValueError:
+            return None
+    def getOldGoalBlockIndex(self, block):
+        if block is None:
+            return None
+        getBlockInfo = lambda x: dict(list(x['visualization'].items())[:3])
+        blockInfo = getBlockInfo(block)
+        reducedGoalBlocks = [getBlockInfo(x) for x in self._goalBlocks]
         try:
             return reducedGoalBlocks.index(blockInfo)
         except ValueError:
@@ -343,6 +354,8 @@ class StrongAgent(BW4TBrain):
 
     def manageBlock(self, block):
         goalBlockIndex = self.getGoalBlockIndex(block)
+        if goalBlockIndex is None:
+            return
         self._foundGoalBlocks[goalBlockIndex] = block
         #if I hold the block I do not need to pick it
         if goalBlockIndex in [self.getGoalBlockIndex(x) for x in self._holdingBlocks]:
