@@ -19,17 +19,16 @@ from bw4t.BW4TBrain import BW4TBrain
 
 
 class Phase(enum.Enum):
-    PLAN_PATH_TO_CLOSED_DOOR = 1,
-    FOLLOW_PATH_TO_DOOR = 2,
-    OPEN_DOOR = 3,
-    PLAN_PATH_TO_UNSEARCHED_DOOR = 4,
-    SEARCH_ROOM = 5,
-    FIND_BLOCK = 6,
-    GRAB = 7,
-    MOVE_TO_OBJECT = 8,
-    MOVING_BLOCK = 9,
-    CHECK_GOAL_ZONE = 10,
-    CHOOSE_NEXT_MOVE = 11
+    FOLLOW_PATH_TO_DOOR = 1,
+    OPEN_DOOR = 2,
+    PLAN_PATH_TO_UNSEARCHED_DOOR = 3,
+    SEARCH_ROOM = 4,
+    FIND_BLOCK = 5,
+    GRAB = 6,
+    MOVE_TO_OBJECT = 7,
+    MOVING_BLOCK = 8,
+    CHECK_GOAL_ZONE = 9,
+    CHOOSE_NEXT_MOVE = 10
 
 
 class LiarAgent(BW4TBrain):
@@ -40,7 +39,6 @@ class LiarAgent(BW4TBrain):
         self._teamMembers = []
         self._goal_objects_found = []
         self._goal_objects = None
-        self._goal_object_delivered = []
         self._current_obj = None
         self._objects = []
         self._door = None
@@ -54,7 +52,6 @@ class LiarAgent(BW4TBrain):
         self._navigator = Navigator(agent_id=self.agent_id,
                                     action_set=self.action_set, algorithm=Navigator.A_STAR_ALGORITHM)
         self._searched_doors_index = None
-        self.read_trust()
 
     def filter_bw4t_observations(self, state):
         return state
@@ -75,7 +72,6 @@ class LiarAgent(BW4TBrain):
             self.initialize_trust()
             self.read_trust()
         self.write_beliefs()
-        # self._sendMessage(Util.reputationMessage(self._trust, self._teamMembers), agent_name)
 
         self._prepareArrayWorld(state)
         self.updateGoalBlocks(state)
@@ -99,21 +95,8 @@ class LiarAgent(BW4TBrain):
 
         if self._searched_doors_index is None:
             self._searched_doors_index = list(range(0, len(state.get_all_room_names()) - 1))
-        # Update trust beliefs for team members
-        # self._trustBlief(state, closeBlocks)
-
-        # Update arrayWorld
-        for obj in closeObjects:
-            loc = obj['location']
-            self._arrayWorld[loc[0]][loc[1]] = []
-
-        if self._goal_objects is None:
-            self._goal_objects = [goal for goal in state.values()
-                                  if 'is_goal_block' in goal and goal['is_goal_block']]
 
         while True:
-            # print(self._phase)
-
             if Phase.PLAN_PATH_TO_UNSEARCHED_DOOR == self._phase:
                 self._navigator.reset_full()
                 # check each room in the given order
@@ -127,11 +110,7 @@ class LiarAgent(BW4TBrain):
                         return None, {}
                     else:
                         self._door = random.choice(doors)
-                #     self._phase = Phase.CHECK_GOAL_ZONE
-                #     print("a dat val")
-                #     return None, {}
                 else:
-                    print(self._searched_doors_index)
                     index = random.choice(self._searched_doors_index)
                     self._door = doors[index]
                     self._searched_doors_index.remove(index)
@@ -144,20 +123,19 @@ class LiarAgent(BW4TBrain):
                 lie = random.uniform(0, 1)
                 if lie <= 0.2:
                     self._sendMessage(Util.moveToMessage(self._door['room_name']), agent_name)
-                    # self.moveToMessage(agent_name)
                 else:
                     self._sendMessage(Util.moveToMessageLie(self._door['room_name'], doors), agent_name)
-                    # self.moveToMessageLie(agent_name, doors)
                 self._navigator.add_waypoints([door_location])
                 self._phase = Phase.FOLLOW_PATH_TO_DOOR
 
+            # Follow path to door
             if Phase.FOLLOW_PATH_TO_DOOR == self._phase:
                 self._state_tracker.update(state)
-                # Follow path to door
                 action = self._navigator.get_move_action(self._state_tracker)
                 if action is not None:
                     return action, {}
 
+                # Check if the door is open
                 if not self._door['is_open']:
                     self._phase = Phase.OPEN_DOOR
                 else:
@@ -181,13 +159,12 @@ class LiarAgent(BW4TBrain):
                     if "wall" not in area['name'] and not self._teamMembers.__contains__(area['name']):
                         room_area.append((area["location"][0], area["location"][1]))
 
+                # Send message with a probability of 0.8 to lie
                 lie = random.uniform(0, 1)
                 if lie <= 0.2:
                     self._sendMessage(Util.searchingThroughMessage(self._door['room_name']), agent_name)
-                    # self.searchingThroughMessage(agent_name)
                 else:
                     self._sendMessage(Util.searchingThroughMessageLie(state, self._door['room_name']), agent_name)
-                    # self.searchingThroughMessageLie(agent_name, state)
 
                 self._navigator.add_waypoints(room_area)
                 self._phase = Phase.FIND_BLOCK
@@ -195,23 +172,24 @@ class LiarAgent(BW4TBrain):
             if Phase.FIND_BLOCK == self._phase:
                 self._state_tracker.update(state)
 
+                # Check if the objects from the room are the searched blocks
                 contents = state.get_room_objects(self._door['room_name'])
                 for c in contents:
-                    # goal = False
                     for i in range(len(self._goal_objects)):
                         if c['visualization']['colour'] == self._goal_objects[i]['visualization']['colour'] and \
                                 c['visualization']['shape'] == self._goal_objects[i]['visualization']['shape'] and \
                                 c['visualization']['size'] == self._goal_objects[i]['visualization']['size'] and \
                                 not c['is_goal_block'] and not c['is_drop_zone']:
                             if i == 0:
-                                # goal = True
                                 if not self._objects.__contains__(c):
+                                    # Send message with a probability of 0.8 to lie
                                     lie = random.uniform(0, 1)
                                     if lie <= 0.2:
                                         self._sendMessage(Util.foundGoalBlockMessage(c), agent_name)
                                     else:
                                         self._sendMessage(Util.foundBlockMessageLie(), agent_name)
                                     self._objects.append(c)
+                                # If a goal block has been found move in top of it
                                 self._phase = Phase.MOVE_TO_OBJECT
                                 self._current_obj = c
                                 self._navigator.reset_full()
@@ -223,6 +201,7 @@ class LiarAgent(BW4TBrain):
 
                     if "Block" in c['name']:
                         if not self._objects.__contains__(c):
+                            # Send message with a probability of 0.8 to lie
                             lie = random.uniform(0, 1)
                             if lie <= 0.2:
                                 self._sendMessage(Util.foundGoalBlockMessage(c), agent_name)
@@ -233,6 +212,7 @@ class LiarAgent(BW4TBrain):
                 action = self._navigator.get_move_action(self._state_tracker)
                 if action is not None:
                     return action, {}
+                # If no object have been found search another room
                 self._phase = Phase.PLAN_PATH_TO_UNSEARCHED_DOOR
 
             if Phase.MOVE_TO_OBJECT == self._phase:
@@ -241,15 +221,19 @@ class LiarAgent(BW4TBrain):
                 if action is not None:
                     return action, {}
                 self._phase = Phase.GRAB
+                # Grab the object the the agent is standing on top of
                 return GrabObject.__name__, {'object_id': self._current_obj['obj_id']}
 
             if Phase.GRAB == self._phase:
+                # Check if the agent was abel to grab the object
                 if not state[agent_name]['is_carrying']:
                     self._phase = Phase.PLAN_PATH_TO_UNSEARCHED_DOOR
                     return None, {}
                 self._navigator.reset_full()
                 self._navigator.add_waypoints([self._goal_objects[0]['location']])
                 self._phase = Phase.MOVING_BLOCK
+
+                # Send message with a probability of 0.8 to lie
                 lie = random.uniform(0, 1)
                 if lie <= 0.2:
                     self._sendMessage(Util.pickingUpBlockMessage(self._current_obj), agent_name)
@@ -259,8 +243,6 @@ class LiarAgent(BW4TBrain):
             if Phase.MOVING_BLOCK == self._phase:
                 self._state_tracker.update(state)
                 action = self._navigator.get_move_action(self._state_tracker)
-
-                # as long as it can move the block
                 if action is not None:
                     return action, {}
 
@@ -278,15 +260,13 @@ class LiarAgent(BW4TBrain):
                     self._phase = Phase.CHOOSE_NEXT_MOVE
 
             if Phase.CHOOSE_NEXT_MOVE == self._phase:
-                # print("aici!!!!!")
                 self._phase = Phase.PLAN_PATH_TO_UNSEARCHED_DOOR
                 # if there is an goal object that we have previously found
                 if len(self._goal_objects_found) > 0 and len(self._goal_objects) > 0:
-
-                    # print("in if")
                     for obj in self._goal_objects_found:
                         if obj['visualization']['colour'] == self._goal_objects[0]['visualization']['colour'] and \
                                 obj['visualization']['shape'] == self._goal_objects[0]['visualization']['shape']:
+                            # Use this method to check whether any agent had moved the block, and act accordingly
                             (picked, location) = \
                                 self.checkLocationOfBlock(receivedMessages, obj['location'],
                                                           obj['visualization'])
@@ -307,13 +287,12 @@ class LiarAgent(BW4TBrain):
                             self._current_obj = obj
 
             if Phase.CHECK_GOAL_ZONE == self._phase:
+                # Check if any block has been misplaced in the goal zone area
                 loc = [goal for goal in state.values()
                        if 'is_goal_block' in goal and goal['is_goal_block']][2]['location']
                 goal_zone = (loc[0], loc[1] - 1)
                 self._navigator.add_waypoints([goal_zone])
-                # self._phase = Phase.FOLLOW_PATH_TO_DOOR
                 self._state_tracker.update(state)
-                # Follow path to door
                 action = self._navigator.get_move_action(self._state_tracker)
                 if action is not None:
                     return action, {}
@@ -342,7 +321,6 @@ class LiarAgent(BW4TBrain):
                                 self._goal_objects_found.append(c)
 
                 action = self._navigator.get_move_action(self._state_tracker)
-                # print("a fct asta aici")
                 if action is not None:
                     return action, {}
                 self._phase = Phase.PLAN_PATH_TO_UNSEARCHED_DOOR
@@ -592,15 +570,11 @@ class LiarAgent(BW4TBrain):
         location = None
         for member in self._teamMembers:
             for message in receivedMessages[member]:
-                # print("nope: ", member, ": ", str(message))
-                # print("pppp: ", str(knownLocation))
                 if str(message).startswith("Picking up ") and str(message).endswith(str(knownLocation)) and\
                         self._trust[member]['average'] >= 0.7:
                     shape = "\"shape\": " + str(visualzation['shape'])
-                    # print("l-a luat")
                     for m in reversed(receivedMessages[member]):
                         if str(m).startswith("Dropped ") and str(m).__contains__(shape):
-                            # print("l-a si lasat")
                             pattern = re.compile("{(.* ?)}")
                             vis = re.search(pattern, m).group(0)
 
@@ -612,7 +586,6 @@ class LiarAgent(BW4TBrain):
                             vis = json.loads(vis)
                             location = (loc[0], loc[1])
                             break
-                    # print("l-am gasit")
                     found = True
                     break
 
@@ -638,7 +611,9 @@ class LiarAgent(BW4TBrain):
         return
 
     def updateGoalBlocks(self, state):
-        return
+        if self._goal_objects is None:
+            self._goal_objects = [goal for goal in state.values()
+                                  if 'is_goal_block' in goal and goal['is_goal_block']]
 
     def pickUpBlockSimpleUpdate(self, block, member):
         return
